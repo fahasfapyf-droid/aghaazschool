@@ -1,0 +1,145 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AdmissionStatus {
+  NEW
+  UNDER_REVIEW
+  DOCUMENTS_PENDING
+  ASSESSMENT_SCHEDULED
+  ASSESSMENT_COMPLETED
+  APPROVED
+  PAYMENT_PENDING
+  ENROLLED
+  REJECTED
+  WAITLISTED
+  WITHDRAWN
+  CANCELLED
+}
+
+enum DocumentStatus { PENDING VERIFIED REJECTED }
+enum AssessmentType { TEST INTERVIEW }
+enum DecisionType { APPROVED REJECTED WAITLISTED }
+enum PaymentStatus { PENDING PAID WAIVED REFUNDED }
+
+enum Gender { MALE FEMALE OTHER }
+
+model AcademicSession {
+  id           String        @id @default(cuid())
+  name         String        @unique
+  startDate    DateTime
+  endDate      DateTime
+  applications Application[]
+  createdAt    DateTime      @default(now())
+}
+
+model AdmissionEnquiry {
+  id             String          @id @default(cuid())
+  enquiryNumber  String          @unique
+  studentName    String
+  dateOfBirth    DateTime?
+  gender         Gender?
+  guardianName   String
+  guardianPhone  String
+  guardianEmail  String?
+  desiredClass   String
+  source         String?
+  status         String          @default("new")
+  notes          String?
+  applications   Application[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+}
+
+model Application {
+  id                 String              @id @default(cuid())
+  applicationNumber  String              @unique
+  enquiryId          String?
+  sessionId          String
+  desiredClass      String
+  studentName       String
+  dateOfBirth       DateTime?
+  gender            Gender?
+  guardianName      String
+  guardianPhone     String
+  guardianEmail     String?
+  previousSchool    String?
+  status            AdmissionStatus      @default(NEW)
+  assignedTo        String?
+  remarks           String?
+  enquiry           AdmissionEnquiry?    @relation(fields: [enquiryId], references: [id])
+  session           AcademicSession      @relation(fields: [sessionId], references: [id])
+  documents         AdmissionDocument[]
+  assessments       Assessment[]
+  decisions         AdmissionDecision[]
+  payments          AdmissionPayment[]
+  enrollment        Enrollment?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  @@index([sessionId, status])
+}
+
+model AdmissionDocument {
+  id             String         @id @default(cuid())
+  applicationId  String
+  documentType   String
+  fileReference  String
+  status         DocumentStatus @default(PENDING)
+  verifiedBy     String?
+  verifiedAt     DateTime?
+  remarks        String?
+  application   Application    @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+}
+
+model Assessment {
+  id             String         @id @default(cuid())
+  applicationId  String
+  type           AssessmentType
+  scheduledAt    DateTime
+  evaluator      String?
+  score          Decimal?
+  result         String?
+  remarks        String?
+  application    Application    @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+}
+
+model AdmissionDecision {
+  id             String       @id @default(cuid())
+  applicationId  String
+  decision       DecisionType
+  decidedBy      String
+  decidedAt      DateTime     @default(now())
+  remarks        String?
+  application    Application  @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+}
+
+model AdmissionPayment {
+  id             String        @id @default(cuid())
+  applicationId  String
+  feeType        String
+  amount         Decimal       @db.Decimal(12, 2)
+  discount       Decimal       @default(0) @db.Decimal(12, 2)
+  netAmount      Decimal       @db.Decimal(12, 2)
+  status         PaymentStatus @default(PENDING)
+  paymentMethod  String?
+  receiptNumber  String?       @unique
+  paidAt         DateTime?
+  application    Application   @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+}
+
+model Enrollment {
+  id               String      @id @default(cuid())
+  applicationId    String      @unique
+  studentId        String      @unique
+  admissionNumber  String      @unique
+  className        String
+  section          String?
+  enrolledAt       DateTime    @default(now())
+  status           String      @default("active")
+  application      Application @relation(fields: [applicationId], references: [id])
+}
