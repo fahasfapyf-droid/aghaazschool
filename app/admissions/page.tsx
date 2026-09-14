@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 
 type Application = {
   id: string;
-  applicationNo?: string;
+  applicationNumber?: string;
   status: string;
   studentName?: string;
   desiredClass?: string;
@@ -36,7 +36,7 @@ export default function AdmissionsPage() {
   }, []);
 
   const filtered = useMemo(() => applications.filter(a => {
-    const haystack = [a.applicationNo, a.studentName, a.guardianName, a.guardianPhone, a.desiredClass].join(" ").toLowerCase();
+    const haystack = [a.applicationNumber, a.studentName, a.guardianName, a.guardianPhone, a.desiredClass].join(" ").toLowerCase();
     return (status === "ALL" || a.status === status) && haystack.includes(query.toLowerCase());
   }), [applications, query, status]);
 
@@ -70,7 +70,7 @@ export default function AdmissionsPage() {
         <div className="toolbar-actions"><input className="search-input" placeholder="Search applicant, guardian or application no." value={query} onChange={e => setQuery(e.target.value)} /><select className="filter-select" value={status} onChange={e => setStatus(e.target.value)}><option value="ALL">All statuses</option>{Object.entries(labels).map(([k,v]) => <option key={k} value={k}>{v}</option>)}</select></div>
       </div>
       {error && <div className="error">{error}</div>}
-      {loading ? <div className="empty-state">Loading applications…</div> : filtered.length === 0 ? <div className="empty-state"><strong>No applications found</strong><span>Try another filter or create a new application.</span><Link className="button" href="/admissions/new">Create Application</Link></div> : <div className="table-wrap"><table><thead><tr><th>Application</th><th>Student</th><th>Class</th><th>Guardian</th><th>Status</th><th>Received</th><th></th></tr></thead><tbody>{filtered.map(a => <tr key={a.id}><td><Link className="app-no" href={`/admissions/${a.id}`}>{a.applicationNo || a.id.slice(0, 8)}</Link><small>{a.session?.name || "2026–27"}</small></td><td><strong>{a.studentName || "—"}</strong></td><td>{a.desiredClass || "—"}</td><td>{a.guardianName || "—"}<small>{a.guardianPhone || ""}</small></td><td><span className={`status-pill status-${a.status.toLowerCase()}`}>{labels[a.status] || a.status}</span></td><td>{a.createdAt ? new Date(a.createdAt).toLocaleDateString() : "—"}</td><td><Link className="row-action" href={`/admissions/${a.id}`}>View →</Link></td></tr>)}</tbody></table></div>}
+      {loading ? <div className="empty-state">Loading applications…</div> : filtered.length === 0 ? <div className="empty-state"><strong>No applications found</strong><span>Try another filter or create a new application.</span><Link className="button" href="/admissions/new">Create Application</Link></div> : <div className="table-wrap"><table><thead><tr><th>Application</th><th>Student</th><th>Class</th><th>Guardian</th><th>Status</th><th>Received</th><th></th></tr></thead><tbody>{filtered.map(a => <tr key={a.id}><td><Link className="app-no" href={`/admissions/${a.id}`}>{a.applicationNumber || a.id.slice(0, 8)}</Link><small>{a.session?.name || "2026–27"}</small></td><td><strong>{a.studentName || "—"}</strong></td><td>{a.desiredClass || "—"}</td><td>{a.guardianName || "—"}<small>{a.guardianPhone || ""}</small></td><td><span className={`status-pill status-${a.status.toLowerCase()}`}>{labels[a.status] || a.status}</span></td><td>{a.createdAt ? new Date(a.createdAt).toLocaleDateString() : "—"}</td><td><Link className="row-action" href={`/admissions/${a.id}`}>View →</Link></td></tr>)}</tbody></table></div>}
     </section>
   </main>;
 }
