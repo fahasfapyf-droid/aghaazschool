@@ -1,11 +1,28 @@
 import Link from "next/link";
 
-const metrics = [["New enquiries", "—"], ["Applications", "—"], ["Pending review", "—"], ["Enrolled", "—"]];
+const modules = [
+  { icon: "AD", title: "Admissions", text: "Manage enquiries, applications and enrollment", href: "/admissions", tone: "violet" },
+  { icon: "ST", title: "Students", text: "Student profiles, classes and records", tone: "blue" },
+  { icon: "AT", title: "Attendance", text: "Track daily student and staff attendance", tone: "mint" },
+  { icon: "HW", title: "Homework", text: "Assignments, submissions and feedback", tone: "peach" },
+  { icon: "EX", title: "Examinations", text: "Exam schedules, marks and assessments", tone: "sky" },
+  { icon: "RS", title: "Results", text: "Academic performance and report cards", tone: "yellow" },
+  { icon: "FE", title: "Fees", text: "Invoices, collections and receipts", tone: "green" },
+  { icon: "TT", title: "Timetable", text: "Classes, teachers and schedules", tone: "lavender" },
+  { icon: "CM", title: "Communication", text: "Notices, circulars and messages", tone: "pink" },
+  { icon: "LV", title: "Leave", text: "Student and staff leave requests", tone: "cyan" },
+  { icon: "RE", title: "Resources", text: "Learning materials and documents", tone: "teal" },
+  { icon: "EV", title: "Events", text: "School calendar and activities", tone: "orange" },
+];
+const activity = [["Admission application received", "APP-2026-0018 · Grade 4", "8 min ago"], ["Fee payment recorded", "INV-2026-0142 · Grade 7", "24 min ago"], ["Attendance completed", "Grade 5-A · 31 students", "42 min ago"], ["Result published", "Grade 9 · Mid-term", "1 hr ago"]];
 
 export default function Home() {
-  return <main className="container">
-    <header className="header"><div><div className="eyebrow">Aghaaz School Management</div><h1>School Management</h1><div className="muted">Administration workspace</div></div><Link className="button" href="/admissions">Open Admissions</Link></header>
-    <section className="grid">{metrics.map(([label,value])=><div className="card" key={label}><div className="muted">{label}</div><div className="metric">{value}</div></div>)}</section>
-    <section className="card"><h2>Admission Management</h2><p className="muted">Manage enquiries, applications, assessments, decisions, payments and enrollment from one workflow.</p><Link className="button secondary" href="/admissions">Manage admissions</Link></section>
-  </main>;
+  return <main className="app-shell">
+    <aside className="sidebar"><div className="brand"><span className="brand-mark">A</span><span>Aghaaz</span></div><div className="school-name">School Management</div><nav className="nav"><Link className="nav-item active" href="/"><span>⌂</span> Dashboard</Link><Link className="nav-item" href="/admissions"><span>◇</span> Admissions</Link><a className="nav-item" href="#modules"><span>▦</span> Modules</a><a className="nav-item" href="#activity"><span>◷</span> Activity</a></nav><div className="sidebar-bottom"><div className="help-card"><strong>Need help?</strong><span>View the Aghaaz guide</span></div><div className="user-mini"><span className="avatar">SA</span><div><strong>School Admin</strong><small>Administrator</small></div></div></div></aside>
+    <section className="main-content"><header className="topbar"><div className="mobile-brand"><span className="brand-mark">A</span> Aghaaz</div><div className="top-actions"><button className="icon-button" aria-label="Search">⌕</button><button className="icon-button" aria-label="Notifications">♧</button><span className="top-avatar">SA</span></div></header>
+      <div className="page"><section className="hero"><div><div className="eyebrow">Good morning</div><h1>Welcome to Aghaaz</h1><p>Everything your school needs, in one place.</p></div><div className="session"><span>Academic Session</span><strong>2026–27⌄</strong></div></section>
+        <section className="stats"><div className="stat-card"><span className="stat-icon violet">AD</span><div><small>Admissions</small><strong>28</strong><em>+12% this month</em></div></div><div className="stat-card"><span className="stat-icon blue">ST</span><div><small>Total Students</small><strong>842</strong><em>+18 this month</em></div></div><div className="stat-card"><span className="stat-icon mint">AT</span><div><small>Today's Attendance</small><strong>94.6%</strong><em>+1.8% vs yesterday</em></div></div><div className="stat-card"><span className="stat-icon yellow">FE</span><div><small>Fee Collection</small><strong>PKR 2.4M</strong><em>82% of monthly target</em></div></div></section>
+        <section id="modules" className="section-heading"><div><h2>Quick Access</h2><p>Jump into any school module.</p></div><a href="#modules">View all →</a></section><section className="module-grid">{modules.map(m => <Link className="module-card" href={m.href ?? "#"} key={m.title}><span className={`module-icon ${m.tone}`}>{m.icon}</span><div><h3>{m.title}</h3><p>{m.text}</p></div><span className="arrow">→</span></Link>)}</section>
+        <section id="activity" className="bottom-grid"><div className="panel"><div className="panel-heading"><div><h2>Recent Activity</h2><p>Latest activity across your school.</p></div><a href="#activity">View all</a></div>{activity.map(([title,detail,time]) => <div className="activity-row" key={title}><span className="activity-dot"/><div><strong>{title}</strong><small>{detail}</small></div><time>{time}</time></div>)}</div><div className="panel"><div className="panel-heading"><div><h2>Coming Up</h2><p>Your next school events.</p></div><a href="#calendar">Calendar</a></div><div className="event"><span className="date-box"><b>18</b><small>SEP</small></span><div><strong>Parent–Teacher Meeting</strong><small>09:00 AM · Main Hall</small></div></div><div className="event"><span className="date-box"><b>21</b><small>SEP</small></span><div><strong>Mid-term Examinations</strong><small>All classes · Examination Hall</small></div></div></div></section>
+      </div></section></main>;
 }
