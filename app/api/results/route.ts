@@ -1,0 +1,8 @@
+import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
+import { prisma } from "@/lib/prisma";
+
+const resultSchema=z.object({paperId:z.string(),studentId:z.string(),marks:z.coerce.number().min(0),remarks:z.string().optional()});
+function grade(marks:number,max:number){const p=max?marks/max*100:0;return p>=90?"A_PLUS":p>=80?"A":p>=70?"B":p>=60?"C":p>=50?"D":"F"}
+export async function GET(req:NextRequest){const studentId=req.nextUrl.searchParams.get("studentId")||undefined;const examId=req.nextUrl.searchParams.get("examId")||undefined;const results=await prisma.result.findMany({where:{...(studentId?{studentId}:{}),...(examId?{paper:{examId}}:{})},include:{student:{include:{application:true}},paper:{include:{exam:true}}},orderBy:{createdAt:"desc"}});return NextResponse.json(results)}
+export async function POST(req:NextRequest){try{const b=resultSchema.parse(await req.json());const paper=await prisma.examPaper.findUnique({where:{id:b.paperId}});if(!paper)return NextResponse.json({error:"Exam paper not found"},{status:404});if(b.marks>Number(paper.maxMarks))return NextResponse.json({error:`Marks cannot exceed ${paper.maxMarks}`},{status:400});const result=await prisma.result.upsert({where:{paperId_studentId:{paperId:b.paperId,studentId:b.studentId}},create:{paperId:b.paperId,studentId:b.studentId,marks:b.marks,grade:grade(b.marks,Number(paper.maxMarks)),remarks:b.remarks},update:{marks:b.marks,grade:grade(b.marks,Number(paper.maxMarks)),remarks:b.remarks}});return NextResponse.json(result)}catch(e){return NextResponse.json({error:e instanceof z.ZodError?"Invalid result data":e instanceof Error?e.message:"Unable to save result"},{status:400})}}
