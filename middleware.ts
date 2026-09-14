@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
+import { SESSION_COOKIE, verifySessionTokenEdge } from "@/lib/session-edge";
 
 const publicPaths = new Set(["/login", "/api/auth/login"]);
 
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   if (publicPaths.has(pathname)) return NextResponse.next();
   if (pathname.startsWith("/_next") || pathname === "/favicon.ico") return NextResponse.next();
 
-  const session = verifySessionToken(request.cookies.get(SESSION_COOKIE)?.value);
+  const session = await verifySessionTokenEdge(request.cookies.get(SESSION_COOKIE)?.value);
   if (session) return NextResponse.next();
 
   if (pathname.startsWith("/api/")) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
