@@ -34,7 +34,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (input.action === "payment") {
       const netAmount = Math.max(0, input.amount - input.discount);
       const payment = await prisma.admissionPayment.create({ data: { applicationId: id, feeType: input.feeType, amount: input.amount, discount: input.discount, netAmount, status: input.status, paymentMethod: input.paymentMethod, receiptNumber: input.receiptNumber || undefined, paidAt: input.status === "PAID" ? new Date() : undefined } });
-      if (input.status === "PAID") await prisma.application.update({ where: { id }, data: { status: "ENROLLED" === application.status ? "ENROLLED" : "PAYMENT_PENDING" } });
+      const nextStatus = input.status === "PENDING" || input.status === "REFUNDED" ? "PAYMENT_PENDING" : application.status === "ENROLLED" ? "ENROLLED" : "APPROVED";
+      await prisma.application.update({ where: { id }, data: { status: nextStatus } });
       return NextResponse.json(payment, { status: 201 });
     }
 
