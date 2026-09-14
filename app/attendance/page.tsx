@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 
-type Student={id:string;application:{studentName?:string;guardianName?:string};className?:string;section?:string}; type Record={id?:string;studentId:string;status:string;remarks?:string};
+type Student={id:string;application?:{studentName?:string;guardianName?:string};enrollment?:{id:string;className?:string;section?:string}}; type Record={id?:string;studentId:string;status:string;remarks?:string};
 const states=["PRESENT","ABSENT","LATE","EXCUSED"];
 export default function AttendancePage(){
  const [students,setStudents]=useState<Student[]>([]),[records,setRecords]=useState<Record[]>([]),[date,setDate]=useState(new Date().toISOString().slice(0,10)),[loading,setLoading]=useState(true),[saving,setSaving]=useState(false),[error,setError]=useState("");
