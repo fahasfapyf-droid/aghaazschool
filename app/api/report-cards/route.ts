@@ -35,6 +35,17 @@ type SubjectReport = {
 };
 type TermReport = { key: string; name: string; order: number; subjects: SubjectReport[] };
 
+function mergeConfigurations<T extends { term: string; subject: string; section: string | null }>(configs: T[], section: string | null) {
+  const selected = new Map<string, T>();
+  for (const config of configs) {
+    if (section && config.section !== section && config.section !== null) continue;
+    const key = `${config.term}:${config.subject.toLowerCase()}`;
+    const current = selected.get(key);
+    if (!current || (section && config.section === section)) selected.set(key, config);
+  }
+  return [...selected.values()];
+}
+
 export async function GET(req: NextRequest) {
   const studentId = req.nextUrl.searchParams.get("studentId");
   if (!studentId) return NextResponse.json({ error: "studentId is required" }, { status: 400 });
@@ -45,14 +56,19 @@ export async function GET(req: NextRequest) {
   });
   if (!student) return NextResponse.json({ error: "Student not found" }, { status: 404 });
 
-  const [results, configurations, attendance] = await Promise.all([
+  const [results, rawConfigurations, attendance] = await Promise.all([
     prisma.result.findMany({
       where: { studentId },
       include: { components: true, paper: { include: { exam: true } } },
       orderBy: [{ paper: { exam: { startDate: "asc" } } }, { paper: { subject: "asc" } }]
     }),
     prisma.reportCardSubject.findMany({
-      where: { sessionId: student.application.sessionId, className: student.className, section: student.section || null, active: true },
+      where: {
+        sessionId: student.application.sessionId,
+        className: student.className,
+        OR: [{ section: student.section || null }, { section: null }],
+        active: true
+      },
       include: { components: { orderBy: { displayOrder: "asc" } } },
       orderBy: [{ term: "asc" }, { displayOrder: "asc" }, { subject: "asc" }]
     }),
@@ -62,6 +78,7 @@ export async function GET(req: NextRequest) {
     })
   ]);
 
+  const configurations = mergeConfigurations(rawConfigurations, student.section || null);
   const attendanceSummary = {
     total: attendance.length,
     present: attendance.filter(x => x.status === "PRESENT" || x.status === "LATE").length,
@@ -79,7 +96,7 @@ export async function GET(req: NextRequest) {
   const configuredTerms = new Map<string, TermReport>();
   for (const config of configurations) {
     const key = config.term;
-    const term = configuredTerms.get(key) || { key, name: termName(key), order: termOrder[key], subjects: [] };
+    const term = configuredTerms.get(key) || { key, name: termName(key), order: termOrder[key] ?? 99, subjects: [] };
     const result = resultByTermSubject.get(`${key}:${config.subject.toLowerCase()}`);
     const maxMarks = Number(config.maxMarks);
     const marks = result ? resultMarks(Number(result.marks), result.components) : 0;
