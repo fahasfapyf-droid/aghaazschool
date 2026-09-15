@@ -1,51 +1,141 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUser } from "@/lib/auth";
 
-const grade = (percentage: number) => percentage >= 90 ? "A_PLUS" : percentage >= 80 ? "A" : percentage >= 70 ? "B_PLUS" : percentage >= 60 ? "B" : percentage >= 50 ? "C" : percentage >= 40 ? "D" : "TRY_AGAIN";
+const grade = (percentage: number) => {
+  if (percentage <= 0) return null;
+  if (percentage >= 90) return "A_PLUS";
+  if (percentage >= 80) return "A";
+  if (percentage >= 70) return "B_PLUS";
+  if (percentage >= 60) return "B";
+  if (percentage >= 50) return "C";
+  if (percentage >= 40) return "D";
+  return "TRY_AGAIN";
+};
+
+const termOrder: Record<string, number> = { FIRST: 1, SECOND: 2, THIRD: 3 };
+const legacyTerm = (name: string) => {
+  const value = name.toLowerCase();
+  if (/\b(first|1st)\b/.test(value)) return "FIRST";
+  if (/\b(second|2nd)\b/.test(value)) return "SECOND";
+  if (/\b(third|3rd)\b/.test(value)) return "THIRD";
+  return null;
+};
 
 export async function GET(req: NextRequest) {
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const studentId = req.nextUrl.searchParams.get("studentId");
   if (!studentId) return NextResponse.json({ error: "studentId is required" }, { status: 400 });
 
   const student = await prisma.enrollment.findUnique({
     where: { id: studentId },
-    include: { application: { include: { session: true } } },
+    include: { application: { include: { session: true } } }
   });
   if (!student) return NextResponse.json({ error: "Student not found" }, { status: 404 });
 
   const results = await prisma.result.findMany({
     where: { studentId },
     include: { components: true, paper: { include: { exam: true } } },
-    orderBy: [{ paper: { exam: { startDate: "asc" } } }, { paper: { subject: "asc" } }],
+    orderBy: [{ paper: { exam: { startDate: "asc" } } }, { paper: { subject: "asc" } }]
   });
 
   const attendance = await prisma.attendance.findMany({ where: { studentId }, orderBy: { date: "asc" } });
-  const attendanceSummary = { total: attendance.length, present: attendance.filter(x => x.status === "PRESENT" || x.status === "LATE").length, absent: attendance.filter(x => x.status === "ABSENT").length, leave: attendance.filter(x => x.status === "EXCUSED").length };
-  const terms = new Map<string, { name: string; order: number; subjects: { subject: string; maxMarks: number; marks: number; percentage: number; grade: string; components: { name: string; maxMarks: number; marks: number }[] }[] }>();
-  for (const r of results) {
-    const exam = r.paper.exam;
-    const key = exam.id;
-    const order = exam.startDate.getTime();
-    const term = terms.get(key) || { name: exam.name, order, subjects: [] };
-    const maxMarks = Number(r.paper.maxMarks);
-    const marks = Number(r.marks);
-    term.subjects.push({ subject: r.paper.subject, maxMarks, marks, percentage: maxMarks ? marks / maxMarks * 100 : 0, grade: r.grade || grade(maxMarks ? marks / maxMarks * 100 : 0), components: r.components.map(c => ({ name: c.name, maxMarks: Number(c.maxMarks), marks: Number(c.marks) })) });
+  const attendanceSummary = {
+    total: attendance.length,
+    present: attendance.filter(x => x.status === "PRESENT" || x.status === "LATE").length,
+    absent: attendance.filter(x => x.status === "ABSENT").length,
+    leave: attendance.filter(x => x.status === "EXCUSED").length
+  };
+
+  type SubjectReport = {
+    subject: string;
+    maxMarks: number;
+    marks: number;
+    percentage: number;
+    grade: string | null;
+    remarks?: string | null;
+    components: { name: string; maxMarks: number; marks: number }[];
+  };
+  type TermReport = { key: string; name: string; order: number; subjects: SubjectReport[] };
+  const terms = new Map<string, TermReport>();
+
+  for (const result of results) {
+    const exam = result.paper.exam;
+    const key = exam.term || legacyTerm(exam.name) || exam.id;
+    const order = exam.term ? termOrder[exam.term] : legacyTerm(exam.name) ? termOrder[legacyTerm(exam.name)!] : exam.startDate.getTime();
+    const name = exam.term ? `${exam.term.charAt(0)}${exam.term.slice(1).toLowerCase()} Term` : exam.name;
+    const term = terms.get(key) || { key, name, order, subjects: [] };
+    const maxMarks = Number(result.paper.maxMarks);
+    const componentMarks = result.components.length ? result.components.reduce((sum, c) => sum + Number(c.marks), 0) : null;
+    const marks = componentMarks ?? Number(result.marks);
+    const percentage = maxMarks ? marks / maxMarks * 100 : 0;
+    term.subjects.push({
+      subject: result.paper.subject,
+      maxMarks,
+      marks,
+      percentage,
+      grade: result.grade || grade(percentage),
+      remarks: result.remarks,
+      components: result.components.map(c => ({ name: c.name, maxMarks: Number(c.maxMarks), marks: Number(c.marks) }))
+    });
     terms.set(key, term);
   }
-  const termReports = [...terms.values()].sort((a, b) => a.order - b.order).map(t => ({ name: t.name, subjects: t.subjects, totalMarks: t.subjects.reduce((n, s) => n + s.maxMarks, 0), obtainedMarks: t.subjects.reduce((n, s) => n + s.marks, 0) }));
-  const totalMarks = termReports.reduce((n, t) => n + t.totalMarks, 0);
-  const obtainedMarks = termReports.reduce((n, t) => n + t.obtainedMarks, 0);
+
+  const termReports = [...terms.values()].sort((a, b) => a.order - b.order).map(({ key, name, order, subjects }) => ({
+    key,
+    name,
+    order,
+    subjects,
+    totalMarks: subjects.reduce((sum, subject) => sum + subject.maxMarks, 0),
+    obtainedMarks: subjects.reduce((sum, subject) => sum + subject.marks, 0)
+  }));
+  const totalMarks = termReports.reduce((sum, term) => sum + term.totalMarks, 0);
+  const obtainedMarks = termReports.reduce((sum, term) => sum + term.obtainedMarks, 0);
   const percentage = totalMarks ? obtainedMarks / totalMarks * 100 : 0;
 
-  const classmates = await prisma.result.findMany({ where: { paper: { className: student.className }, student: { className: student.className, section: student.section }, }, select: { studentId: true, marks: true, paper: { select: { maxMarks: true, exam: { select: { sessionId: true } } } } } });
-  const totals = new Map<string, number>();
-  const maxTotals = new Map<string, number>();
-  for (const r of classmates) { totals.set(r.studentId, (totals.get(r.studentId) || 0) + Number(r.marks)); maxTotals.set(r.studentId, (maxTotals.get(r.studentId) || 0) + Number(r.paper.maxMarks)); }
-  const ranked = [...totals.entries()].filter(([id]) => maxTotals.get(id)).sort((a, b) => (b[1] / (maxTotals.get(b[0]) || 1)) - (a[1] / (maxTotals.get(a[0]) || 1)) || b[1] - a[1]);
-  const position = ranked.findIndex(([id]) => id === studentId) + 1;
+  const examIds = [...new Set(results.map(result => result.paper.examId))];
+  let position: number | null = null;
+  if (examIds.length) {
+    const classmates = await prisma.result.findMany({
+      where: {
+        paper: { examId: { in: examIds }, exam: { sessionId: student.application.sessionId } },
+        student: { className: student.className, section: student.section }
+      },
+      select: { studentId: true, marks: true, paperId: true, paper: { select: { maxMarks: true } } }
+    });
 
-  return NextResponse.json({ student: { id: student.id, name: student.application.studentName, guardianName: student.application.guardianName, guardianPhone: student.application.guardianPhone, admissionNumber: student.admissionNumber, className: student.className, section: student.section, session: student.application.session.name }, terms: termReports, final: { totalMarks, obtainedMarks, percentage, grade: grade(percentage), position: position || null }, attendance: { ...attendanceSummary, percentage: attendanceSummary.total ? (attendanceSummary.present / attendanceSummary.total) * 100 : 0 } });
+    const totals = new Map<string, { marks: number; maxMarks: number; papers: Set<string> }>();
+    for (const result of classmates) {
+      const current = totals.get(result.studentId) || { marks: 0, maxMarks: 0, papers: new Set<string>() };
+      current.marks += Number(result.marks);
+      current.maxMarks += Number(result.paper.maxMarks);
+      current.papers.add(result.paperId);
+      totals.set(result.studentId, current);
+    }
+
+    const ranked = [...totals.entries()]
+      .filter(([, value]) => value.papers.size === examIds.reduce((count, examId) => count + results.filter(r => r.paper.examId === examId).length, 0))
+      .sort((a, b) => {
+        const aPct = a[1].maxMarks ? a[1].marks / a[1].maxMarks : 0;
+        const bPct = b[1].maxMarks ? b[1].marks / b[1].maxMarks : 0;
+        return bPct - aPct || b[1].marks - a[1].marks || a[0].localeCompare(b[0]);
+      });
+
+    const rankIndex = ranked.findIndex(([id]) => id === studentId);
+    position = rankIndex >= 0 ? rankIndex + 1 : null;
+  }
+
+  return NextResponse.json({
+    student: {
+      id: student.id,
+      name: student.application.studentName,
+      guardianName: student.application.guardianName,
+      guardianPhone: student.application.guardianPhone,
+      admissionNumber: student.admissionNumber,
+      className: student.className,
+      section: student.section,
+      session: student.application.session.name
+    },
+    terms: termReports,
+    final: { totalMarks, obtainedMarks, percentage, grade: grade(percentage), position },
+    attendance: { ...attendanceSummary, percentage: attendanceSummary.total ? attendanceSummary.present / attendanceSummary.total * 100 : 0 }
+  });
 }
