@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { getCurrentUser } from "@/lib/auth";
+import { requestAuditContext, writeAuditLog } from "@/lib/audit";
 
 const examSchema = z.object({
   name: z.string().min(2),
@@ -15,23 +17,34 @@ const examSchema = z.object({
     subject: z.string().min(1),
     maxMarks: z.coerce.number().positive(),
     passMarks: z.coerce.number().min(0),
-    examDate: z.string().optional()
-  })).default([])
+    examDate: z.string().optional(),
+  })).default([]),
 });
 
+const adminRoles = new Set(["SUPER_ADMIN", "ADMIN"]);
+
 export async function GET(req: NextRequest) {
+  const user = await getCurrentUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const status = req.nextUrl.searchParams.get("status") || undefined;
   const exams = await prisma.exam.findMany({
     where: status ? { status: status as "DRAFT" | "SCHEDULED" | "PUBLISHED" } : undefined,
     include: { session: true, papers: { include: { _count: { select: { results: true } } }, orderBy: { examDate: "asc" } } },
-    orderBy: { startDate: "desc" }
+    orderBy: { startDate: "desc" },
   });
   return NextResponse.json(exams);
 }
 
 export async function POST(req: NextRequest) {
   try {
+    const user = await getCurrentUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!adminRoles.has(user.role)) return NextResponse.json({ error: "Only administrators can create examinations" }, { status: 403 });
+
     const body = examSchema.parse(await req.json());
+    if (body.status && body.status !== "DRAFT") {
+      return NextResponse.json({ error: "New examinations must start as DRAFT and be scheduled before publication" }, { status: 400 });
+    }
     let sessionId = body.sessionId;
     if (!sessionId) {
       const session = await prisma.academicSession.findFirst({ orderBy: { startDate: "desc" } });
@@ -51,18 +64,26 @@ export async function POST(req: NextRequest) {
         sessionId,
         startDate,
         endDate,
-        status: body.status || "DRAFT",
+        status: "DRAFT",
         papers: {
           create: body.papers.map(p => ({
             className: p.className,
             subject: p.subject,
             maxMarks: p.maxMarks,
             passMarks: p.passMarks,
-            examDate: p.examDate ? new Date(p.examDate) : undefined
-          }))
-        }
+            examDate: p.examDate ? new Date(p.examDate) : undefined,
+          })),
+        },
       },
-      include: { session: true, papers: true }
+      include: { session: true, papers: true },
+    });
+    await writeAuditLog({
+      userId: user.id,
+      action: "EXAM_CREATED",
+      entityType: "Exam",
+      entityId: exam.id,
+      metadata: { type: exam.type, term: exam.term, paperCount: exam.papers.length },
+      context: requestAuditContext(req),
     });
     return NextResponse.json(exam, { status: 201 });
   } catch (e) {
