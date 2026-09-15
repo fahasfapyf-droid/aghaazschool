@@ -7,7 +7,7 @@ type ResultComponent = Component & { marks: string };
 type Student = { id: string; application?: { studentName?: string; sessionId?: string }; enrollment?: { id: string; className?: string; section?: string } };
 type Result = { id: string; studentId: string; marks: string; grade?: string; remarks?: string | null; components?: ResultComponent[] };
 type Paper = { id: string; className: string; subject: string; maxMarks: string; passMarks: string; results: Result[] };
-type Exam = { id: string; name: string; status: string; term?: string | null; papers: Paper[]; session: { id: string; name: string } };
+type Exam = { id: string; name: string; status: string; term?: string | null; papers: Paper[]; session: { id: string; name: string }; publicationReady?: boolean; publicationErrors?: string[] };
 type Config = { id: string; className: string; section: string | null; term: string; subject: string; maxMarks: number; components: Component[] };
 type ComponentValues = Record<string, Record<string, string>>;
 
@@ -71,7 +71,7 @@ export default function ExamDetail({ params }: { params: Promise<{ id: string }>
     const r = await fetch(`/api/exams/${exam.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) });
     const d = await r.json();
     setStatusSaving(false);
-    if (!r.ok) { setError(d.error || "Unable to change examination status"); return; }
+    if (!r.ok) { setError([d.error, ...(d.details || [])].filter(Boolean).join("\n")); await load(); return; }
     await load();
   }
 
@@ -83,9 +83,7 @@ export default function ExamDetail({ params }: { params: Promise<{ id: string }>
     const config = configs[p.id];
     const components = config?.components?.length ? config.components.map(c => ({ name: c.name, maxMarks: c.maxMarks, marks: Number(componentValues[key]?.[c.name] || 0) })) : undefined;
     setSaving(key); setError("");
-    const payload = components
-      ? { paperId: p.id, studentId, components, remarks: remarks[key] || undefined }
-      : { paperId: p.id, studentId, marks: marks[key], remarks: remarks[key] || undefined };
+    const payload = components ? { paperId: p.id, studentId, components, remarks: remarks[key] || undefined } : { paperId: p.id, studentId, marks: marks[key], remarks: remarks[key] || undefined };
     const r = await fetch("/api/results", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
     const d = await r.json();
     setSaving("");
@@ -100,19 +98,26 @@ export default function ExamDetail({ params }: { params: Promise<{ id: string }>
   const statusHelp = exam.status === "PUBLISHED"
     ? "Published results are official and locked. Unpublish to return the examination to editable status."
     : exam.status === "SCHEDULED"
-      ? "Publishing makes the entered results official and locks result edits."
+      ? "Publishing requires a complete, internally consistent result set for every active student in every paper."
       : "Schedule the examination first; administrators can then publish its results.";
 
   return <main className="admissions-shell">
     <header className="admissions-header">
       <div><div className="eyebrow">Examinations / {exam.session.name}</div><h1>{exam.name}</h1><p>{exam.term ? `${exam.term.charAt(0)}${exam.term.slice(1).toLowerCase()} Term · ` : ""}{exam.papers.length} paper{exam.papers.length === 1 ? "" : "s"} · <span className={`status-pill status-${exam.status.toLowerCase()}`}>{exam.status}</span></p></div>
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-        {statusAction && <button className="button" disabled={statusSaving} onClick={() => changeStatus(statusAction)}>{statusSaving ? "Updating…" : statusLabel}</button>}
+        {statusAction && <button className="button" disabled={statusSaving || (statusAction === "PUBLISHED" && !exam.publicationReady)} onClick={() => changeStatus(statusAction)}>{statusSaving ? "Updating…" : statusLabel}</button>}
         <Link className="button secondary" href="/results">Report Cards</Link>
       </div>
     </header>
-    {error && <div className="error">{error}</div>}
-    <section className="form-card"><strong>Publication control</strong><p className="muted" style={{ margin: "6px 0 0" }}>{statusHelp}</p></section>
+    {error && <div className="error" style={{ whiteSpace: "pre-line" }}>{error}</div>}
+    <section className="form-card">
+      <strong>Publication control</strong>
+      <p className="muted" style={{ margin: "6px 0 0" }}>{statusHelp}</p>
+      {exam.status !== "PUBLISHED" && <div style={{ marginTop: 12 }}>
+        {exam.publicationReady ? <span className="status-pill status-published">Ready to publish</span> : <span className="status-pill status-draft">Publication blocked</span>}
+        {!exam.publicationReady && exam.publicationErrors?.length ? <ul style={{ margin: "10px 0 0 18px" }}>{exam.publicationErrors.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ul> : null}
+      </div>}
+    </section>
     {exam.papers.map(p => {
       const config = configs[p.id];
       return <section className="applications-card" key={p.id}>
