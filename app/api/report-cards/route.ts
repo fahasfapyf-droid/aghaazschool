@@ -79,7 +79,7 @@ export async function GET(req: NextRequest) {
 
   const [results, rawConfigurations, attendance] = await Promise.all([
     prisma.result.findMany({
-      where: { studentId },
+      where: { studentId, paper: { exam: { status: "PUBLISHED" } } },
       include: { components: true, paper: { include: { exam: true } } },
       orderBy: [{ paper: { exam: { startDate: "asc" } } }, { paper: { subject: "asc" } }],
     }),
@@ -226,7 +226,7 @@ export async function GET(req: NextRequest) {
     const classResults = await prisma.result.findMany({
       where: {
         studentId: { in: classmateIds },
-        paper: { className: student.className, exam: { sessionId: student.application.sessionId } },
+        paper: { className: student.className, exam: { sessionId: student.application.sessionId, status: "PUBLISHED" } },
       },
       include: { components: true, paper: { include: { exam: true } } },
     });
