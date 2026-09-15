@@ -1,0 +1,1 @@
+Configuration model work is being introduced incrementally. The Prisma model must be migrated only when a real PostgreSQL database is available.
