@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, roleAllowed } from "@/lib/auth";
+import { requestAuditContext, writeAuditLog } from "@/lib/audit";
 import type { UserRole } from "@prisma/client";
 
 const TIMETABLE_ROLES: UserRole[] = ["SUPER_ADMIN", "ADMIN", "TEACHER"];
@@ -38,10 +39,12 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const auth = await authorized();
   if (auth.response) return auth.response;
+  const context = requestAuditContext(request);
   try {
     const body = entrySchema.parse(await request.json());
     if (body.endTime <= body.startTime) return NextResponse.json({ error: "End time must be after start time." }, { status: 400 });
     const entry = await prisma.timetableEntry.create({ data: body });
+    await writeAuditLog({ userId: auth.user.id, action: "TIMETABLE_ENTRY_CREATED", entityType: "TimetableEntry", entityId: entry.id, metadata: { className: entry.className, section: entry.section, subject: entry.subject, dayOfWeek: entry.dayOfWeek, period: entry.period }, context });
     return NextResponse.json(entry, { status: 201 });
   } catch (error) {
     if (error instanceof z.ZodError) return NextResponse.json({ error: "Invalid timetable entry.", details: error.flatten() }, { status: 400 });
@@ -52,11 +55,17 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   const auth = await authorized();
   if (auth.response) return auth.response;
+  const context = requestAuditContext(request);
   try {
     const id = request.nextUrl.searchParams.get("id");
     if (!id) return NextResponse.json({ error: "Entry id is required." }, { status: 400 });
     const body = entrySchema.partial().parse(await request.json());
+    const existing = await prisma.timetableEntry.findUnique({ where: { id } });
+    if (!existing) return NextResponse.json({ error: "Timetable entry not found." }, { status: 404 });
+    const merged = { ...existing, ...body };
+    if (merged.endTime <= merged.startTime) return NextResponse.json({ error: "End time must be after start time." }, { status: 400 });
     const entry = await prisma.timetableEntry.update({ where: { id }, data: body });
+    await writeAuditLog({ userId: auth.user.id, action: "TIMETABLE_ENTRY_UPDATED", entityType: "TimetableEntry", entityId: entry.id, metadata: { changedFields: Object.keys(body) }, context });
     return NextResponse.json(entry);
   } catch (error) {
     if (error instanceof z.ZodError) return NextResponse.json({ error: "Invalid timetable entry." }, { status: 400 });
@@ -67,8 +76,16 @@ export async function PATCH(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   const auth = await authorized();
   if (auth.response) return auth.response;
+  const context = requestAuditContext(request);
   const id = request.nextUrl.searchParams.get("id");
   if (!id) return NextResponse.json({ error: "Entry id is required." }, { status: 400 });
-  await prisma.timetableEntry.delete({ where: { id } });
-  return NextResponse.json({ success: true });
+  try {
+    const existing = await prisma.timetableEntry.findUnique({ where: { id } });
+    if (!existing) return NextResponse.json({ error: "Timetable entry not found." }, { status: 404 });
+    await prisma.timetableEntry.delete({ where: { id } });
+    await writeAuditLog({ userId: auth.user.id, action: "TIMETABLE_ENTRY_DELETED", entityType: "TimetableEntry", entityId: id, metadata: { className: existing.className, section: existing.section, subject: existing.subject, dayOfWeek: existing.dayOfWeek, period: existing.period }, context });
+    return NextResponse.json({ success: true });
+  } catch {
+    return NextResponse.json({ error: "Unable to delete timetable entry." }, { status: 500 });
+  }
 }
