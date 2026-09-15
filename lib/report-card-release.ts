@@ -1,5 +1,3 @@
-import { Prisma } from "@prisma/client";
-import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 
 export type ReportCardReleaseRecord = {
@@ -13,33 +11,26 @@ export type ReportCardReleaseRecord = {
 };
 
 export async function findReportCardRelease(studentId: string, sessionId: string) {
-  const rows = await prisma.$queryRaw<ReportCardReleaseRecord[]>(Prisma.sql`
-    SELECT id, "studentId", "sessionId", snapshot, "snapshotHash", "releasedBy", "releasedAt"
-    FROM "ReportCardRelease"
-    WHERE "studentId" = ${studentId} AND "sessionId" = ${sessionId}
-    LIMIT 1
-  `);
-  return rows[0] ?? null;
+  return prisma.reportCardRelease.findUnique({
+    where: { studentId_sessionId: { studentId, sessionId } },
+    select: { id: true, studentId: true, sessionId: true, snapshot: true, snapshotHash: true, releasedBy: true, releasedAt: true },
+  });
 }
 
 export async function hasReportCardRelease(studentId: string, sessionId: string) {
-  const rows = await prisma.$queryRaw<Array<{ exists: boolean }>>(Prisma.sql`
-    SELECT EXISTS(
-      SELECT 1 FROM "ReportCardRelease"
-      WHERE "studentId" = ${studentId} AND "sessionId" = ${sessionId}
-    ) AS exists
-  `);
-  return Boolean(rows[0]?.exists);
+  const release = await prisma.reportCardRelease.findUnique({
+    where: { studentId_sessionId: { studentId, sessionId } },
+    select: { id: true },
+  });
+  return Boolean(release);
 }
 
 export async function hasAnyReportCardRelease(sessionId: string) {
-  const rows = await prisma.$queryRaw<Array<{ exists: boolean }>>(Prisma.sql`
-    SELECT EXISTS(
-      SELECT 1 FROM "ReportCardRelease"
-      WHERE "sessionId" = ${sessionId}
-    ) AS exists
-  `);
-  return Boolean(rows[0]?.exists);
+  const release = await prisma.reportCardRelease.findFirst({
+    where: { sessionId },
+    select: { id: true },
+  });
+  return Boolean(release);
 }
 
 export async function createReportCardRelease(input: {
@@ -49,10 +40,14 @@ export async function createReportCardRelease(input: {
   snapshotHash: string;
   releasedBy: string;
 }) {
-  const rows = await prisma.$queryRaw<ReportCardReleaseRecord[]>(Prisma.sql`
-    INSERT INTO "ReportCardRelease" (id, "studentId", "sessionId", snapshot, "snapshotHash", "releasedBy", "releasedAt")
-    VALUES (${randomUUID()}, ${input.studentId}, ${input.sessionId}, ${JSON.stringify(input.snapshot)}::jsonb, ${input.snapshotHash}, ${input.releasedBy}, CURRENT_TIMESTAMP)
-    RETURNING id, "studentId", "sessionId", snapshot, "snapshotHash", "releasedBy", "releasedAt"
-  `);
-  return rows[0];
+  return prisma.reportCardRelease.create({
+    data: {
+      studentId: input.studentId,
+      sessionId: input.sessionId,
+      snapshot: input.snapshot as object,
+      snapshotHash: input.snapshotHash,
+      releasedBy: input.releasedBy,
+    },
+    select: { id: true, studentId: true, sessionId: true, snapshot: true, snapshotHash: true, releasedBy: true, releasedAt: true },
+  });
 }
