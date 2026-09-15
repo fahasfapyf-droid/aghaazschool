@@ -15,6 +15,7 @@ enum PaymentStatus { PENDING PAID WAIVED REFUNDED }
 enum Gender { MALE FEMALE OTHER }
 enum AttendanceStatus { PRESENT ABSENT LATE EXCUSED }
 enum ExamType { MIDTERM FINAL QUIZ MONTHLY OTHER }
+enum AcademicTerm { FIRST SECOND THIRD }
 enum ExamStatus { DRAFT SCHEDULED PUBLISHED }
 enum ResultGrade { A_PLUS A B_PLUS B C D TRY_AGAIN }
 enum UserRole { SUPER_ADMIN ADMIN TEACHER ACCOUNTANT RECEPTIONIST }
@@ -187,6 +188,7 @@ model Exam {
   id String @id @default(cuid())
   name String
   type ExamType
+  term AcademicTerm?
   sessionId String
   startDate DateTime
   endDate DateTime
@@ -196,6 +198,7 @@ model Exam {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   @@index([sessionId, status])
+  @@index([sessionId, term])
 }
 
 model ExamPaper {
