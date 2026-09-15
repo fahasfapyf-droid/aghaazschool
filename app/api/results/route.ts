@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import { requestAuditContext, writeAuditLog } from "@/lib/audit";
 
 const componentSchema = z.object({ name: z.string().trim().min(1), maxMarks: z.coerce.number().positive(), marks: z.coerce.number().min(0) });
 const resultSchema = z.object({ paperId: z.string(), studentId: z.string(), marks: z.coerce.number().min(0).optional(), components: z.array(componentSchema).optional(), remarks: z.string().trim().max(2000).optional() });
@@ -51,12 +52,13 @@ export async function POST(req: NextRequest) {
       where: {
         sessionId: paper.exam.sessionId,
         className: paper.className,
-        section: student.section || null,
+        OR: [{ section: student.section || null }, { section: null }],
         term: paper.exam.term,
         subject: paper.subject,
         active: true
       },
-      include: { components: { orderBy: { displayOrder: "asc" } } }
+      include: { components: { orderBy: { displayOrder: "asc" } } },
+      orderBy: { section: "desc" }
     }) : null;
 
     if (configured && Math.abs(Number(configured.maxMarks) - maxMarks) > 0.01) {
@@ -90,6 +92,15 @@ export async function POST(req: NextRequest) {
       create: { paperId: body.paperId, studentId: body.studentId, marks, grade: grade(marks, maxMarks), remarks: body.remarks, components: components?.length ? { create: components.map(c => ({ name: c.name, maxMarks: c.maxMarks, marks: c.marks })) } : undefined },
       update: { marks, grade: grade(marks, maxMarks), remarks: body.remarks, components: components ? { deleteMany: {}, create: components.map(c => ({ name: c.name, maxMarks: c.maxMarks, marks: c.marks })) } : undefined },
       include: { components: true, paper: true }
+    });
+
+    await writeAuditLog({
+      userId: user.id,
+      action: "RESULT_SAVED",
+      entityType: "Result",
+      entityId: result.id,
+      metadata: { studentId: body.studentId, paperId: body.paperId, examId: paper.examId, subject: paper.subject, marks, maxMarks, grade: result.grade },
+      context: requestAuditContext(req)
     });
     return NextResponse.json(result);
   } catch (e) {
