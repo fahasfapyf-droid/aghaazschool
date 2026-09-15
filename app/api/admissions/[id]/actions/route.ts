@@ -43,6 +43,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       if (Number.isNaN(scheduledAt.getTime())) return NextResponse.json({ error: "Invalid assessment date." }, { status: 400 });
       const nextStatus = input.score !== undefined || input.result ? "ASSESSMENT_COMPLETED" : "ASSESSMENT_SCHEDULED";
       const assessment = await prisma.$transaction(async tx => {
+        const latest = await tx.application.findUnique({ where: { id } });
+        if (!latest) throw new Error("APPLICATION_NOT_FOUND");
+        if (!decisionEligible.has(latest.status)) throw new Error(`APPLICATION_STATUS_CHANGED:${latest.status}`);
         const created = await tx.assessment.create({ data: { applicationId: id, type: input.type, scheduledAt, evaluator: input.evaluator, score: input.score, result: input.result, remarks: input.remarks } });
         await tx.application.update({ where: { id }, data: { status: nextStatus } });
         return created;
@@ -54,14 +57,15 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (input.action === "payment") {
       if (application.status !== "APPROVED" && application.status !== "PAYMENT_PENDING") return NextResponse.json({ error: `Payment cannot be recorded while application is ${application.status}. Approve the application first.` }, { status: 409 });
       const netAmount = Math.max(0, input.amount - input.discount);
+      const nextStatus = input.status === "PENDING" || input.status === "REFUNDED" ? "PAYMENT_PENDING" : "APPROVED";
       const payment = await prisma.$transaction(async tx => {
         const latest = await tx.application.findUnique({ where: { id } });
         if (!latest) throw new Error("APPLICATION_NOT_FOUND");
         if (latest.status !== "APPROVED" && latest.status !== "PAYMENT_PENDING") throw new Error(`APPLICATION_STATUS_CHANGED:${latest.status}`);
-        return tx.admissionPayment.create({ data: { applicationId: id, feeType: input.feeType, amount: input.amount, discount: input.discount, netAmount, status: input.status, paymentMethod: input.paymentMethod, receiptNumber: input.receiptNumber || `ADM-RCP-${randomUUID()}`, paidAt: input.status === "PAID" ? new Date() : undefined } });
+        const created = await tx.admissionPayment.create({ data: { applicationId: id, feeType: input.feeType, amount: input.amount, discount: input.discount, netAmount, status: input.status, paymentMethod: input.paymentMethod, receiptNumber: input.receiptNumber || `ADM-RCP-${randomUUID()}`, paidAt: input.status === "PAID" ? new Date() : undefined } });
+        await tx.application.update({ where: { id }, data: { status: nextStatus } });
+        return created;
       });
-      const nextStatus = input.status === "PENDING" || input.status === "REFUNDED" ? "PAYMENT_PENDING" : "APPROVED";
-      await prisma.application.update({ where: { id }, data: { status: nextStatus } });
       await writeAuditLog({ userId: user.id, action: "ADMISSION_PAYMENT_CREATED", entityType: "AdmissionPayment", entityId: payment.id, metadata: { applicationId: id, feeType: input.feeType, amount: input.amount, discount: input.discount, netAmount, status: input.status, nextStatus }, context });
       return NextResponse.json(payment, { status: 201 });
     }
