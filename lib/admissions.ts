@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 export const admissionCreateSchema = z.object({
@@ -16,13 +17,9 @@ export const admissionCreateSchema = z.object({
 export type AdmissionCreateInput = z.infer<typeof admissionCreateSchema>;
 
 export function applicationNumber() {
-  const year = new Date().getFullYear();
-  const suffix = Math.floor(1000 + Math.random() * 9000);
-  return `APP-${year}-${suffix}`;
+  return `APP-${new Date().getFullYear()}-${randomUUID()}`;
 }
 
 export function enquiryNumber() {
-  const year = new Date().getFullYear();
-  const suffix = Math.floor(1000 + Math.random() * 9000);
-  return `ENQ-${year}-${suffix}`;
+  return `ENQ-${new Date().getFullYear()}-${randomUUID()}`;
 }
