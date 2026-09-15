@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 type Component = { id?: string; name: string; maxMarks: number; displayOrder: number };
 type Subject = { id: string; className: string; section: string | null; term: string; subject: string; maxMarks: number; displayOrder: number; active: boolean; components: Component[] };
 type Student = { id: string; className?: string; section?: string; application?: { studentName?: string } };
+type Session = { id: string; name: string; startDate: string; endDate: string };
 
 const termOptions = [
   { value: "FIRST", label: "1st Term" },
@@ -14,6 +15,7 @@ const termOptions = [
 
 export default function ReportCardConfig() {
   const [students, setStudents] = useState<Student[]>([]);
+  const [sessions, setSessions] = useState<Session[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [sessionId, setSessionId] = useState("");
   const [className, setClassName] = useState("");
@@ -28,9 +30,15 @@ export default function ReportCardConfig() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    fetch("/api/students").then((r) => r.json()).then((data) => {
-      setStudents(Array.isArray(data) ? data : data.students || []);
-    }).catch(() => setError("Unable to load students"));
+    Promise.all([fetch("/api/students"), fetch("/api/academic-sessions")]).then(async ([studentResponse, sessionResponse]) => {
+      if (!studentResponse.ok || !sessionResponse.ok) throw new Error();
+      const studentData = await studentResponse.json();
+      const sessionData = await sessionResponse.json();
+      setStudents(Array.isArray(studentData) ? studentData : studentData.students || []);
+      const available = Array.isArray(sessionData.sessions) ? sessionData.sessions : [];
+      setSessions(available);
+      if (available[0]) setSessionId(available[0].id);
+    }).catch(() => setError("Unable to load academic setup data"));
   }, []);
 
   function selectClass(value: string) {
@@ -44,7 +52,7 @@ export default function ReportCardConfig() {
   async function loadConfig() {
     setError("");
     setMessage("");
-    if (!sessionId || !className) return setError("Enter an academic session ID and class.");
+    if (!sessionId || !className) return setError("Select an academic session and class.");
     const params = new URLSearchParams({ sessionId, className, term });
     if (section) params.set("section", section);
     const response = await fetch(`/api/report-card-config?${params}`);
@@ -57,6 +65,8 @@ export default function ReportCardConfig() {
     const name = componentName.trim();
     const marks = Number(componentMarks);
     if (!name || !Number.isFinite(marks) || marks <= 0) return;
+    if (components.some((item) => item.name.toLowerCase() === name.toLowerCase())) return setError("Component names must be unique.");
+    setError("");
     setComponents([...components, { name, maxMarks: marks, displayOrder: components.length }]);
     setComponentName("");
     setComponentMarks("");
@@ -65,6 +75,7 @@ export default function ReportCardConfig() {
   async function saveSubject() {
     setError("");
     setMessage("");
+    if (!sessionId || !className || !subject.trim()) return setError("Select a session, enter a class and subject.");
     const response = await fetch("/api/report-card-config", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -80,13 +91,13 @@ export default function ReportCardConfig() {
 
   return <main className="container">
     <header className="admissions-header">
-      <div><div className="eyebrow">Aghaaz School Management / Academic Setup</div><h1>Report Card Configuration</h1><p>Define subjects, maximum marks and assessment components for each class and term.</p></div>
+      <div><div className="eyebrow">Aghaaz School Management / Academic Setup</div><h1>Report Card Configuration</h1><p>Define subjects, maximum marks and assessment components for each class, section and term.</p></div>
     </header>
 
     <section className="applications-card" style={{ marginBottom: 24 }}>
       <h2>Scope</h2>
       <div className="form-grid">
-        <label>Academic Session ID<input value={sessionId} onChange={(e) => setSessionId(e.target.value)} placeholder="Session ID" /></label>
+        <label>Academic Session<select value={sessionId} onChange={(e) => setSessionId(e.target.value)}><option value="">Select session</option>{sessions.map((session) => <option key={session.id} value={session.id}>{session.name}</option>)}</select></label>
         <label>Class<input value={className} onChange={(e) => setClassName(e.target.value)} placeholder="e.g. IB" /></label>
         <label>Section<input value={section} onChange={(e) => setSection(e.target.value)} placeholder="e.g. A" /></label>
         <label>Term<select value={term} onChange={(e) => setTerm(e.target.value)}>{termOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
