@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { requestAuditContext, writeAuditLog } from "@/lib/audit";
+import { hasAnyReportCardRelease } from "@/lib/report-card-release";
 
 const patchSchema = z.object({ name: z.string().min(2).optional(), status: z.enum(["DRAFT", "SCHEDULED", "PUBLISHED"]).optional(), startDate: z.string().optional(), endDate: z.string().optional() });
 const adminRoles = new Set(["SUPER_ADMIN", "ADMIN"]);
@@ -79,6 +80,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       if (body.status === "PUBLISHED") {
         const publicationErrors = await validatePublication(id, current.sessionId);
         if (publicationErrors.length) return NextResponse.json({ error: "Examination is not ready for publication", details: publicationErrors.slice(0, 20) }, { status: 409 });
+      }
+      if (current.status === "PUBLISHED" && body.status === "SCHEDULED" && await hasAnyReportCardRelease(current.sessionId)) {
+        return NextResponse.json({ error: "This examination cannot be unpublished because an official report card has already been released for this academic session." }, { status: 409 });
       }
     }
     const startDate = body.startDate ? new Date(body.startDate) : current.startDate;
