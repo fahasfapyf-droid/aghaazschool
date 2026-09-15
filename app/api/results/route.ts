@@ -26,6 +26,7 @@ export async function POST(req: NextRequest) {
     const body = resultSchema.parse(await req.json());
     const paper = await prisma.examPaper.findUnique({ where: { id: body.paperId }, include: { exam: true } });
     if (!paper) return NextResponse.json({ error: "Exam paper not found" }, { status: 404 });
+    if (paper.exam.status === "PUBLISHED") return NextResponse.json({ error: "This examination is published and its results are locked. An administrator must unpublish it before corrections can be made." }, { status: 409 });
     const student = await prisma.enrollment.findUnique({ where: { id: body.studentId }, include: { application: { select: { sessionId: true } } } });
     if (!student) return NextResponse.json({ error: "Student not found" }, { status: 404 });
     if (student.className !== paper.className) return NextResponse.json({ error: "Student is not enrolled in this paper's class" }, { status: 400 });
