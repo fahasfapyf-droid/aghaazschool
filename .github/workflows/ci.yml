@@ -33,5 +33,7 @@ jobs:
         run: npm run test:aghaaz-config
       - name: Verify term-specific subjects
         run: npm run test:term-subjects
+      - name: Verify examination publication rules
+        run: npm run test:exam-publishing
       - name: Production build
         run: npm run build
