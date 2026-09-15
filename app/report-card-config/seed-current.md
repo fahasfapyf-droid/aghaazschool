@@ -1,0 +1,1 @@
+Do not auto-seed database data; configure through the admin screen.
