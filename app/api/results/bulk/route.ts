@@ -17,10 +17,7 @@ const entrySchema = z.object({
   remarks: z.string().trim().max(2000).optional(),
 }).refine(entry => entry.marks !== undefined || entry.components !== undefined, { message: "Marks or assessment components are required" });
 
-const bulkSchema = z.object({
-  paperId: z.string().min(1),
-  entries: z.array(entrySchema).min(1).max(200),
-});
+const bulkSchema = z.object({ paperId: z.string().min(1), entries: z.array(entrySchema).min(1).max(200) });
 
 function grade(marks: number, maxMarks: number) {
   const percentage = maxMarks ? (marks / maxMarks) * 100 : 0;
@@ -34,9 +31,7 @@ function grade(marks: number, maxMarks: number) {
   return "TRY_AGAIN";
 }
 
-function canEnterResults(role?: string) {
-  return role === "SUPER_ADMIN" || role === "ADMIN" || role === "TEACHER";
-}
+function canEnterResults(role?: string) { return role === "SUPER_ADMIN" || role === "ADMIN" || role === "TEACHER"; }
 
 export async function POST(req: NextRequest) {
   try {
@@ -50,11 +45,7 @@ export async function POST(req: NextRequest) {
 
     const studentIds = [...new Set(body.entries.map(entry => entry.studentId))];
     if (studentIds.length !== body.entries.length) return NextResponse.json({ error: "Each student may appear only once in a bulk submission" }, { status: 400 });
-
-    const students = await prisma.enrollment.findMany({
-      where: { id: { in: studentIds }, status: "active" },
-      select: { id: true, className: true, section: true, application: { select: { sessionId: true } } },
-    });
+    const students = await prisma.enrollment.findMany({ where: { id: { in: studentIds }, status: "active" }, select: { id: true, className: true, section: true, application: { select: { sessionId: true } } } });
     if (students.length !== studentIds.length) return NextResponse.json({ error: "One or more students are not active or were not found" }, { status: 400 });
     if (students.some(student => student.className !== paper.className)) return NextResponse.json({ error: "All selected students must belong to the paper's class" }, { status: 400 });
     if (students.some(student => student.application.sessionId !== paper.exam.sessionId)) return NextResponse.json({ error: "All selected students must belong to the examination's academic session" }, { status: 400 });
@@ -65,22 +56,18 @@ export async function POST(req: NextRequest) {
     if (sectionSet.size > 1) return NextResponse.json({ error: "Bulk submission cannot mix students from different sections" }, { status: 400 });
     const section = students[0]?.section || null;
 
-    const configured = paper.exam.term ? await prisma.reportCardSubject.findFirst({
-      where: {
-        sessionId: paper.exam.sessionId,
-        className: paper.className,
-        OR: [{ section }, { section: null }],
-        term: paper.exam.term,
-        subject: paper.subject,
-        active: true,
-      },
-      include: { components: { orderBy: { displayOrder: "asc" } } },
-      orderBy: { section: "desc" },
-    }) : null;
+    let configured = null;
+    if (paper.exam.term) {
+      const configs = await prisma.reportCardSubject.findMany({
+        where: { sessionId: paper.exam.sessionId, className: paper.className, term: paper.exam.term, subject: paper.subject, active: true, OR: [{ section }, { section: null }] },
+        include: { components: { orderBy: { displayOrder: "asc" } } },
+      });
+      configured = configs.find(item => item.section === section) || configs.find(item => item.section === null) || null;
+    }
 
     if (configured && Math.abs(Number(configured.maxMarks) - maxMarks) > 0.01) return NextResponse.json({ error: `Exam paper maximum (${maxMarks}) does not match configured maximum (${configured.maxMarks})` }, { status: 400 });
-
     const configuredComponents = configured?.components ?? [];
+
     for (const entry of body.entries) {
       const components = entry.components;
       if (configuredComponents.length && !components?.length) return NextResponse.json({ error: "This subject requires assessment component marks for every submitted student" }, { status: 400 });
@@ -100,9 +87,7 @@ export async function POST(req: NextRequest) {
           }
         }
         if (componentMarks > maxMarks) return NextResponse.json({ error: `Marks cannot exceed ${maxMarks}` }, { status: 400 });
-      } else if ((entry.marks ?? 0) > maxMarks) {
-        return NextResponse.json({ error: `Marks cannot exceed ${maxMarks}` }, { status: 400 });
-      }
+      } else if ((entry.marks ?? 0) > maxMarks) return NextResponse.json({ error: `Marks cannot exceed ${maxMarks}` }, { status: 400 });
       if (!studentMap.has(entry.studentId)) return NextResponse.json({ error: "Invalid student in submission" }, { status: 400 });
     }
 
@@ -113,20 +98,8 @@ export async function POST(req: NextRequest) {
         const marks = components?.length ? components.reduce((sum, component) => sum + component.marks, 0) : entry.marks!;
         const result = await tx.result.upsert({
           where: { paperId_studentId: { paperId: body.paperId, studentId: entry.studentId } },
-          create: {
-            paperId: body.paperId,
-            studentId: entry.studentId,
-            marks,
-            grade: grade(marks, maxMarks),
-            remarks: entry.remarks,
-            components: components?.length ? { create: components.map(component => ({ name: component.name, maxMarks: component.maxMarks, marks: component.marks })) } : undefined,
-          },
-          update: {
-            marks,
-            grade: grade(marks, maxMarks),
-            remarks: entry.remarks,
-            components: components ? { deleteMany: {}, create: components.map(component => ({ name: component.name, maxMarks: component.maxMarks, marks: component.marks })) } : undefined,
-          },
+          create: { paperId: body.paperId, studentId: entry.studentId, marks, grade: grade(marks, maxMarks), remarks: entry.remarks, components: components?.length ? { create: components.map(component => ({ name: component.name, maxMarks: component.maxMarks, marks: component.marks })) } : undefined },
+          update: { marks, grade: grade(marks, maxMarks), remarks: entry.remarks, components: components ? { deleteMany: {}, create: components.map(component => ({ name: component.name, maxMarks: component.maxMarks, marks: component.marks })) } : undefined },
           select: { id: true, studentId: true, marks: true, grade: true },
         });
         saved.push(result);
@@ -134,15 +107,7 @@ export async function POST(req: NextRequest) {
       return saved;
     });
 
-    await writeAuditLog({
-      userId: user.id,
-      action: "RESULT_BULK_SAVED",
-      entityType: "ExamPaper",
-      entityId: paper.id,
-      metadata: { examId: paper.examId, subject: paper.subject, className: paper.className, section, count: results.length, resultIds: results.map(result => result.id) },
-      context: requestAuditContext(req),
-    });
-
+    await writeAuditLog({ userId: user.id, action: "RESULT_BULK_SAVED", entityType: "ExamPaper", entityId: paper.id, metadata: { examId: paper.examId, subject: paper.subject, className: paper.className, section, count: results.length, resultIds: results.map(result => result.id) }, context: requestAuditContext(req) });
     return NextResponse.json({ saved: results.length, results });
   } catch (error) {
     return NextResponse.json({ error: error instanceof z.ZodError ? "Invalid bulk result data" : error instanceof Error ? error.message : "Unable to save class results" }, { status: 400 });
