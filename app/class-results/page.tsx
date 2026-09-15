@@ -6,11 +6,14 @@ import { useEffect, useMemo, useState } from "react";
 type Subject = { subject: string; maxMarks: number; displayOrder?: number };
 type Row = { id: string; name: string; admissionNumber: string; position: number | null; totalMarks: number; obtainedMarks: number; percentage: number; values: { subject: string; maxMarks: number; marks: number; grade: string | null }[] };
 type ResultSheet = { session: string; className: string; section: string | null; term: string; subjects: Subject[]; rows: Row[] };
+type Student = { id: string; name: string; className: string; section?: string | null; sessionId?: string };
+type Session = { id: string; name: string };
 
 const terms = [{ value: "FIRST", label: "1st Term" }, { value: "SECOND", label: "2nd Term" }, { value: "THIRD", label: "3rd Term" }];
 
 export default function ClassResults() {
-  const [students, setStudents] = useState<{ id: string; name: string; className: string; section?: string | null; sessionId?: string }[]>([]);
+  const [students, setStudents] = useState<Student[]>([]);
+  const [sessions, setSessions] = useState<Session[]>([]);
   const [sessionId, setSessionId] = useState("");
   const [className, setClassName] = useState("");
   const [section, setSection] = useState("");
@@ -20,10 +23,16 @@ export default function ClassResults() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    fetch("/api/students").then(r => r.json()).then(data => {
+    Promise.all([fetch("/api/students"), fetch("/api/academic-sessions")]).then(async ([studentResponse, sessionResponse]) => {
+      if (!studentResponse.ok || !sessionResponse.ok) throw new Error();
+      const data = await studentResponse.json();
+      const sessionData = await sessionResponse.json();
       const list = Array.isArray(data) ? data : [];
       setStudents(list.map((item: { enrollment?: { id: string; className: string; section?: string | null }; studentName?: string; session?: { id: string } }) => ({ id: item.enrollment?.id || "", name: item.studentName || "Unnamed", className: item.enrollment?.className || "", section: item.enrollment?.section, sessionId: item.session?.id })).filter((item: { id: string }) => item.id));
-    }).catch(() => setError("Unable to load students"));
+      const available = Array.isArray(sessionData.sessions) ? sessionData.sessions : [];
+      setSessions(available);
+      if (available[0]) setSessionId(available[0].id);
+    }).catch(() => setError("Unable to load academic setup data"));
   }, []);
 
   const classes = useMemo(() => [...new Set(students.map(s => s.className).filter(Boolean))], [students]);
@@ -56,7 +65,7 @@ export default function ClassResults() {
     <header className="admissions-header no-print"><div><div className="eyebrow">Aghaaz School Management / Academic Reports</div><h1>Class Result Sheet</h1><p>Term-wise class result, grades, totals and position.</p></div><div style={{ display: "flex", gap: 10 }}><Link className="button secondary" href="/results">Student Results</Link>{sheet && <button className="button" onClick={() => window.print()}>Print</button>}</div></header>
     <section className="applications-card no-print">
       <div className="form-grid">
-        <label>Academic Session ID<input className="input" value={sessionId} onChange={e => setSessionId(e.target.value)} placeholder="Session ID" /></label>
+        <label>Academic Session<select className="input" value={sessionId} onChange={e => setSessionId(e.target.value)}><option value="">Select session</option>{sessions.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
         <label>Class<select className="input" value={className} onChange={e => { setClassName(e.target.value); setSection(""); }}><option value="">Select class</option>{classes.map(c => <option key={c}>{c}</option>)}</select></label>
         <label>Section<select className="input" value={section} onChange={e => setSection(e.target.value)}><option value="">All sections</option>{sections.map(s => <option key={s as string}>{s as string}</option>)}</select></label>
         <label>Term<select className="input" value={term} onChange={e => setTerm(e.target.value)}>{terms.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}</select></label>
