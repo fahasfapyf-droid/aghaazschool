@@ -11,6 +11,8 @@ type Exam = { id: string; name: string; status: string; term?: string | null; pa
 type Config = { id: string; className: string; section: string | null; term: string; subject: string; maxMarks: number; components: Component[] };
 type ComponentValues = Record<string, Record<string, string>>;
 
+const nextStatus: Record<string, "SCHEDULED" | "PUBLISHED"> = { DRAFT: "SCHEDULED", SCHEDULED: "PUBLISHED" };
+
 export default function ExamDetail({ params }: { params: Promise<{ id: string }> }) {
   const [exam, setExam] = useState<Exam | null>(null);
   const [students, setStudents] = useState<Student[]>([]);
@@ -20,6 +22,7 @@ export default function ExamDetail({ params }: { params: Promise<{ id: string }>
   const [remarks, setRemarks] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const [saving, setSaving] = useState("");
+  const [statusSaving, setStatusSaving] = useState(false);
 
   const load = async () => {
     const { id } = await params;
@@ -62,7 +65,18 @@ export default function ExamDetail({ params }: { params: Promise<{ id: string }>
     setComponentValues(prev => ({ ...prev, [key]: { ...(prev[key] || {}), [name]: value } }));
   }
 
+  async function changeStatus(status: "SCHEDULED" | "PUBLISHED") {
+    if (!exam) return;
+    setStatusSaving(true); setError("");
+    const r = await fetch(`/api/exams/${exam.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) });
+    const d = await r.json();
+    setStatusSaving(false);
+    if (!r.ok) { setError(d.error || "Unable to change examination status"); return; }
+    await load();
+  }
+
   async function save(p: Paper, s: Student) {
+    if (exam?.status === "PUBLISHED") { setError("Published examination results are locked. Unpublish the examination before making corrections."); return; }
     const studentId = s.enrollment?.id;
     if (!studentId) { setError("Student enrollment not found"); return; }
     const key = `${p.id}:${studentId}`;
@@ -81,12 +95,24 @@ export default function ExamDetail({ params }: { params: Promise<{ id: string }>
 
   if (!exam) return <main className="admissions-shell"><div className="empty-state">{error || "Loading examination…"}</div></main>;
 
+  const statusAction = exam.status === "PUBLISHED" ? "SCHEDULED" : nextStatus[exam.status];
+  const statusLabel = exam.status === "PUBLISHED" ? "Unpublish Results" : exam.status === "DRAFT" ? "Schedule Examination" : "Publish Results";
+  const statusHelp = exam.status === "PUBLISHED"
+    ? "Published results are official and locked. Unpublish to return the examination to editable status."
+    : exam.status === "SCHEDULED"
+      ? "Publishing makes the entered results official and locks result edits."
+      : "Schedule the examination first; administrators can then publish its results.";
+
   return <main className="admissions-shell">
     <header className="admissions-header">
       <div><div className="eyebrow">Examinations / {exam.session.name}</div><h1>{exam.name}</h1><p>{exam.term ? `${exam.term.charAt(0)}${exam.term.slice(1).toLowerCase()} Term · ` : ""}{exam.papers.length} paper{exam.papers.length === 1 ? "" : "s"} · <span className={`status-pill status-${exam.status.toLowerCase()}`}>{exam.status}</span></p></div>
-      <Link className="button secondary" href="/results">Report Cards</Link>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        {statusAction && <button className="button" disabled={statusSaving} onClick={() => changeStatus(statusAction)}>{statusSaving ? "Updating…" : statusLabel}</button>}
+        <Link className="button secondary" href="/results">Report Cards</Link>
+      </div>
     </header>
     {error && <div className="error">{error}</div>}
+    <section className="form-card"><strong>Publication control</strong><p className="muted" style={{ margin: "6px 0 0" }}>{statusHelp}</p></section>
     {exam.papers.map(p => {
       const config = configs[p.id];
       return <section className="applications-card" key={p.id}>
@@ -95,8 +121,8 @@ export default function ExamDetail({ params }: { params: Promise<{ id: string }>
           <tbody>{students.filter(s => !s.enrollment?.className || s.enrollment.className === p.className).map(s => {
             const studentId = s.enrollment?.id || ""; const key = `${p.id}:${studentId}`; const result = p.results.find(r => r.studentId === studentId); const values = componentValues[key] || {};
             return <tr key={s.id}><td><strong>{s.application?.studentName || "—"}</strong></td>
-              {config?.components?.length ? config.components.map(c => <td key={c.name}><input className="input marks-input" type="number" min="0" max={c.maxMarks} value={values[c.name] ?? ""} onChange={e => setComponent(p.id, studentId, c.name, e.target.value)} /></td>) : <td><input className="input marks-input" type="number" min="0" max={Number(p.maxMarks)} value={marks[key] ?? result?.marks ?? ""} onChange={e => setMarks({ ...marks, [key]: e.target.value })} /></td>}
-              <td>{result?.grade || "—"}</td><td><input className="input remark-input" maxLength={2000} value={remarks[key] ?? result?.remarks ?? ""} onChange={e => setRemarks({ ...remarks, [key]: e.target.value })} placeholder="Optional remark" /></td><td><button className="row-action" disabled={saving === key} onClick={() => save(p, s)}>{saving === key ? "Saving…" : "Save"}</button></td></tr>;
+              {config?.components?.length ? config.components.map(c => <td key={c.name}><input className="input marks-input" disabled={exam.status === "PUBLISHED"} type="number" min="0" max={c.maxMarks} value={values[c.name] ?? ""} onChange={e => setComponent(p.id, studentId, c.name, e.target.value)} /></td>) : <td><input className="input marks-input" disabled={exam.status === "PUBLISHED"} type="number" min="0" max={Number(p.maxMarks)} value={marks[key] ?? result?.marks ?? ""} onChange={e => setMarks({ ...marks, [key]: e.target.value })} /></td>}
+              <td>{result?.grade || "—"}</td><td><input className="input remark-input" disabled={exam.status === "PUBLISHED"} maxLength={2000} value={remarks[key] ?? result?.remarks ?? ""} onChange={e => setRemarks({ ...remarks, [key]: e.target.value })} placeholder="Optional remark" /></td><td>{exam.status === "PUBLISHED" ? <span className="muted">Locked</span> : <button className="row-action" disabled={saving === key} onClick={() => save(p, s)}>{saving === key ? "Saving…" : "Save"}</button>}</td></tr>;
           })}</tbody>
         </table></div>
         {config?.components?.length ? <p className="muted" style={{ marginTop: 12 }}>Configured components are authoritative for this subject. The saved subject mark is their sum.</p> : null}
