@@ -3,6 +3,7 @@ import { SESSION_COOKIE, verifySessionTokenEdge } from "@/lib/session-edge";
 
 const publicPaths = new Set(["/login", "/api/auth/login"]);
 const roleRules: Array<[string, string[]]> = [
+  ["/admin", ["SUPER_ADMIN", "ADMIN"]],
   ["/admissions", ["SUPER_ADMIN", "ADMIN", "RECEPTIONIST"]],
   ["/fees", ["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"]],
   ["/attendance", ["SUPER_ADMIN", "ADMIN", "TEACHER"]],
@@ -13,6 +14,7 @@ const roleRules: Array<[string, string[]]> = [
   ["/communication", ["SUPER_ADMIN", "ADMIN", "RECEPTIONIST"]],
   ["/leave", ["SUPER_ADMIN", "ADMIN", "TEACHER", "RECEPTIONIST"]],
   ["/students", ["SUPER_ADMIN", "ADMIN", "TEACHER", "RECEPTIONIST"]],
+  ["/api/admin", ["SUPER_ADMIN", "ADMIN"]],
   ["/api/admissions", ["SUPER_ADMIN", "ADMIN", "RECEPTIONIST"]],
   ["/api/fees", ["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"]],
   ["/api/attendance", ["SUPER_ADMIN", "ADMIN", "TEACHER"]],
@@ -44,21 +46,17 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   if (pathname.startsWith("/_next") || pathname === "/favicon.ico") return NextResponse.next();
   if (publicPaths.has(pathname)) return secureResponse(NextResponse.next());
-
   const session = await verifySessionTokenEdge(request.cookies.get(SESSION_COOKIE)?.value);
   if (!session) {
     if (pathname.startsWith("/api/")) return secureResponse(NextResponse.json({ error: "Authentication required." }, { status: 401 }));
-    const login = new URL("/login", request.url);
-    login.searchParams.set("next", pathname);
+    const login = new URL("/login", request.url); login.searchParams.set("next", pathname);
     return secureResponse(NextResponse.redirect(login));
   }
-
   const roles = requiredRoles(pathname);
   if (roles && !roles.includes(session.role)) {
     if (pathname.startsWith("/api/")) return secureResponse(NextResponse.json({ error: "You do not have permission to access this resource." }, { status: 403 }));
     return secureResponse(NextResponse.redirect(new URL("/", request.url)));
   }
-
   return secureResponse(NextResponse.next());
 }
 
