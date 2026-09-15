@@ -7,20 +7,110 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum AdmissionStatus { NEW UNDER_REVIEW DOCUMENTS_PENDING ASSESSMENT_SCHEDULED ASSESSMENT_COMPLETED APPROVED PAYMENT_PENDING ENROLLED REJECTED WAITLISTED WITHDRAWN CANCELLED }
-enum DocumentStatus { PENDING VERIFIED REJECTED }
-enum AssessmentType { TEST INTERVIEW }
-enum DecisionType { APPROVED REJECTED WAITLISTED }
-enum PaymentStatus { PENDING PAID WAIVED REFUNDED }
-enum Gender { MALE FEMALE OTHER }
-enum AttendanceStatus { PRESENT ABSENT LATE EXCUSED }
-enum ExamType { MIDTERM FINAL QUIZ MONTHLY OTHER }
-enum ExamStatus { DRAFT SCHEDULED PUBLISHED }
-enum ResultGrade { A_PLUS A B C D F }
-enum UserRole { SUPER_ADMIN ADMIN TEACHER ACCOUNTANT RECEPTIONIST }
-enum DayOfWeek { MONDAY TUESDAY WEDNESDAY THURSDAY FRIDAY SATURDAY SUNDAY }
-enum HomeworkStatus { DRAFT PUBLISHED CLOSED }
-enum SubmissionStatus { NOT_SUBMITTED SUBMITTED REVIEWED }
+enum AdmissionStatus {
+  NEW
+  UNDER_REVIEW
+  DOCUMENTS_PENDING
+  ASSESSMENT_SCHEDULED
+  ASSESSMENT_COMPLETED
+  APPROVED
+  PAYMENT_PENDING
+  ENROLLED
+  REJECTED
+  WAITLISTED
+  WITHDRAWN
+  CANCELLED
+}
+
+enum DocumentStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum AssessmentType {
+  TEST
+  INTERVIEW
+}
+
+enum DecisionType {
+  APPROVED
+  REJECTED
+  WAITLISTED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  WAIVED
+  REFUNDED
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  EXCUSED
+}
+
+enum ExamType {
+  MIDTERM
+  FINAL
+  QUIZ
+  MONTHLY
+  OTHER
+}
+
+enum ExamStatus {
+  DRAFT
+  SCHEDULED
+  PUBLISHED
+}
+
+enum ResultGrade {
+  A_PLUS
+  A
+  B
+  C
+  D
+  F
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  TEACHER
+  ACCOUNTANT
+  RECEPTIONIST
+}
+
+enum DayOfWeek {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+enum HomeworkStatus {
+  DRAFT
+  PUBLISHED
+  CLOSED
+}
+
+enum SubmissionStatus {
+  NOT_SUBMITTED
+  SUBMITTED
+  REVIEWED
+}
 
 model AcademicSession {
   id           String        @id @default(cuid())
@@ -255,7 +345,7 @@ model LeaveRequest {
 }
 
 model TimetableEntry {
-  id         String      @id @default(cuid())
+  id         String    @id @default(cuid())
   dayOfWeek  DayOfWeek
   className  String
   section    String?
@@ -265,8 +355,8 @@ model TimetableEntry {
   startTime  String
   endTime    String
   period     Int
-  createdAt  DateTime    @default(now())
-  updatedAt  DateTime    @updatedAt
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
   @@index([className, section, dayOfWeek, period])
 }
 
@@ -289,16 +379,16 @@ model Homework {
 }
 
 model HomeworkSubmission {
-  id          String           @id @default(cuid())
-  homeworkId  String
-  studentId   String
-  status      SubmissionStatus @default(NOT_SUBMITTED)
+  id           String           @id @default(cuid())
+  homeworkId   String
+  studentId    String
+  status       SubmissionStatus @default(NOT_SUBMITTED)
   submittedAt DateTime?
-  feedback    String?
-  homework    Homework         @relation(fields: [homeworkId], references: [id], onDelete: Cascade)
-  student     Enrollment       @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+  feedback     String?
+  homework     Homework         @relation(fields: [homeworkId], references: [id], onDelete: Cascade)
+  student      Enrollment       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
   @@unique([homeworkId, studentId])
   @@index([studentId, status])
 }
