@@ -64,8 +64,11 @@ export default function ReportCardConfig() {
   function addComponent() {
     const name = componentName.trim();
     const marks = Number(componentMarks);
-    if (!name || !Number.isFinite(marks) || marks <= 0) return;
+    if (!name || !Number.isFinite(marks) || marks <= 0) return setError("Enter a component name and positive maximum marks.");
     if (components.some((item) => item.name.toLowerCase() === name.toLowerCase())) return setError("Component names must be unique.");
+    const subjectMaximum = Number(maxMarks);
+    const componentTotal = components.reduce((sum, item) => sum + item.maxMarks, 0) + marks;
+    if (Number.isFinite(subjectMaximum) && componentTotal > subjectMaximum + 0.001) return setError("Component maximums cannot exceed the subject maximum.");
     setError("");
     setComponents([...components, { name, maxMarks: marks, displayOrder: components.length }]);
     setComponentName("");
@@ -76,10 +79,14 @@ export default function ReportCardConfig() {
     setError("");
     setMessage("");
     if (!sessionId || !className || !subject.trim()) return setError("Select a session, enter a class and subject.");
+    const numericMax = Number(maxMarks);
+    if (!Number.isFinite(numericMax) || numericMax <= 0) return setError("Maximum marks must be greater than zero.");
+    if (components.length && Math.abs(components.reduce((sum, item) => sum + item.maxMarks, 0) - numericMax) > 0.001) return setError("Assessment component maximums must equal the subject maximum marks.");
+
     const response = await fetch("/api/report-card-config", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId, className, section: section || null, term, subject, maxMarks: Number(maxMarks), displayOrder: subjects.length, components }),
+      body: JSON.stringify({ sessionId, className, section: section || null, term, subject: subject.trim(), maxMarks: numericMax, displayOrder: subjects.length, components }),
     });
     const data = await response.json();
     if (!response.ok) return setError(data.error || "Unable to save configuration");
@@ -102,7 +109,7 @@ export default function ReportCardConfig() {
         <label>Section<input value={section} onChange={(e) => setSection(e.target.value)} placeholder="e.g. A" /></label>
         <label>Term<select value={term} onChange={(e) => setTerm(e.target.value)}>{termOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
       </div>
-      <div style={{ marginTop: 12, display: "flex", gap: 12 }}><button className="button" onClick={loadConfig}>Load Configuration</button><select className="filter-select" onChange={(e) => selectClass(e.target.value)} defaultValue=""><option value="">Use enrolled student to fill class</option>{students.map((student) => <option key={student.id} value={student.id}>{student.application?.studentName || "Unnamed"}</option>)}</select></div>
+      <div style={{ marginTop: 12, display: "flex", gap: 12, flexWrap: "wrap" }}><button className="button" onClick={loadConfig}>Load Configuration</button><select className="filter-select" onChange={(e) => selectClass(e.target.value)} defaultValue=""><option value="">Use enrolled student to fill class</option>{students.map((student) => <option key={student.id} value={student.id}>{student.application?.studentName || "Unnamed"}</option>)}</select></div>
     </section>
 
     <section className="applications-card" style={{ marginBottom: 24 }}>
