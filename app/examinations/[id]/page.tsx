@@ -41,7 +41,7 @@ export default function ExamDetail({ params }: { params: Promise<{ id: string }>
       const loaded = await Promise.all(x.papers.map(async (p: Paper) => {
         const response = await fetch(`/api/report-card-config?${new URLSearchParams({ sessionId: x.session.id, className: p.className, term: x.term })}`);
         const data = await response.json();
-        return [p.id, (data.subjects || []).find((item: Config) => item.subject.toLowerCase() === p.subject.toLowerCase() && item.active !== false) || null] as const;
+        return [p.id, (data.subjects || []).find((item: Config) => item.subject.toLowerCase() === p.subject.toLowerCase()) || null] as const;
       }));
       setConfigs(Object.fromEntries(loaded));
     }
