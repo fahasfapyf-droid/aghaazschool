@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { getCurrentUser } from "@/lib/auth";
 
 const componentSchema = z.object({
   name: z.string().trim().min(1),
@@ -28,7 +29,14 @@ function grade(marks: number, max: number) {
   return "TRY_AGAIN";
 }
 
+function canEnterResults(role?: string) {
+  return role === "SUPER_ADMIN" || role === "ADMIN" || role === "TEACHER";
+}
+
 export async function GET(req: NextRequest) {
+  const user = await getCurrentUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   const studentId = req.nextUrl.searchParams.get("studentId") || undefined;
   const examId = req.nextUrl.searchParams.get("examId") || undefined;
   const results = await prisma.result.findMany({
@@ -41,6 +49,10 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const user = await getCurrentUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!canEnterResults(user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
     const body = resultSchema.parse(await req.json());
     const paper = await prisma.examPaper.findUnique({ where: { id: body.paperId }, include: { exam: true } });
     if (!paper) return NextResponse.json({ error: "Exam paper not found" }, { status: 404 });
