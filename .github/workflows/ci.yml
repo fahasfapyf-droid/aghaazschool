@@ -35,5 +35,7 @@ jobs:
         run: npm run test:term-subjects
       - name: Verify examination publication rules
         run: npm run test:exam-publishing
+      - name: Verify report card release rules
+        run: npm run test:report-card-release
       - name: Production build
         run: npm run build
