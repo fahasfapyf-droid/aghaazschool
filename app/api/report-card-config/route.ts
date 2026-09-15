@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import { hasAnyReportCardRelease } from "@/lib/report-card-release";
 
 const terms = ["FIRST", "SECOND", "THIRD"] as const;
 type AcademicTerm = (typeof terms)[number];
 type NormalizedComponent = { name: string; maxMarks: number; displayOrder: number };
-
 function canManage(role?: string) { return role === "SUPER_ADMIN" || role === "ADMIN"; }
 
 export async function GET(request: NextRequest) {
@@ -18,19 +18,10 @@ export async function GET(request: NextRequest) {
   const term = searchParams.get("term");
   if (!sessionId) return NextResponse.json({ error: "sessionId is required" }, { status: 400 });
   if (term && !terms.includes(term as AcademicTerm)) return NextResponse.json({ error: "Invalid academic term" }, { status: 400 });
-
   const base = { sessionId, ...(className ? { className } : {}), ...(term ? { term: term as AcademicTerm } : {}) };
-  const subjects = await prisma.reportCardSubject.findMany({
-    where: section ? { ...base, OR: [{ section }, { section: null }] } : base,
-    include: { components: { orderBy: { displayOrder: "asc" } } },
-    orderBy: [{ term: "asc" }, { displayOrder: "asc" }, { subject: "asc" }],
-  });
-
+  const subjects = await prisma.reportCardSubject.findMany({ where: section ? { ...base, OR: [{ section }, { section: null }] } : base, include: { components: { orderBy: { displayOrder: "asc" } } }, orderBy: [{ term: "asc" }, { displayOrder: "asc" }, { subject: "asc" }] });
   if (!section) return NextResponse.json({ subjects });
-  const selected = subjects.filter((subject, index, all) => {
-    if (subject.section === section) return true;
-    return !all.some(other => other.section === section && other.term === subject.term && other.subject.toLowerCase() === subject.subject.toLowerCase());
-  });
+  const selected = subjects.filter(subject => subject.section === section || !subjects.some(other => other.section === section && other.term === subject.term && other.subject.toLowerCase() === subject.subject.toLowerCase()));
   return NextResponse.json({ subjects: selected });
 }
 
@@ -40,7 +31,6 @@ export async function POST(request: NextRequest) {
   if (!canManage(user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const body = await request.json().catch(() => null);
   if (!body || typeof body !== "object") return NextResponse.json({ error: "Invalid request" }, { status: 400 });
-
   const sessionId = typeof body.sessionId === "string" ? body.sessionId.trim() : "";
   const className = typeof body.className === "string" ? body.className.trim() : "";
   const section = typeof body.section === "string" && body.section.trim() ? body.section.trim() : null;
@@ -52,6 +42,7 @@ export async function POST(request: NextRequest) {
   const components = Array.isArray(body.components) ? body.components : [];
   if (!sessionId || !className || !subject || !terms.includes(term as AcademicTerm)) return NextResponse.json({ error: "sessionId, className, term and subject are required" }, { status: 400 });
   if (!Number.isFinite(maxMarks) || maxMarks <= 0) return NextResponse.json({ error: "maxMarks must be greater than zero" }, { status: 400 });
+  if (await hasAnyReportCardRelease(sessionId)) return NextResponse.json({ error: "Report card configuration is locked because an official report card has already been released for this academic session." }, { status: 409 });
 
   const normalizedComponents: NormalizedComponent[] = components.map((component: unknown, index: number) => {
     const item = component as Record<string, unknown>;
@@ -63,8 +54,6 @@ export async function POST(request: NextRequest) {
 
   const existing = await prisma.reportCardSubject.findFirst({ where: { sessionId, className, section, term: term as AcademicTerm, subject }, select: { id: true } });
   const data = { maxMarks, displayOrder, active, components: { deleteMany: {}, create: normalizedComponents } };
-  const config = existing
-    ? await prisma.reportCardSubject.update({ where: { id: existing.id }, data, include: { components: { orderBy: { displayOrder: "asc" } } } })
-    : await prisma.reportCardSubject.create({ data: { sessionId, className, section, term: term as AcademicTerm, subject, ...data }, include: { components: { orderBy: { displayOrder: "asc" } } } });
+  const config = existing ? await prisma.reportCardSubject.update({ where: { id: existing.id }, data, include: { components: { orderBy: { displayOrder: "asc" } } } }) : await prisma.reportCardSubject.create({ data: { sessionId, className, section, term: term as AcademicTerm, subject, ...data }, include: { components: { orderBy: { displayOrder: "asc" } } } });
   return NextResponse.json({ subject: config }, { status: existing ? 200 : 201 });
 }
