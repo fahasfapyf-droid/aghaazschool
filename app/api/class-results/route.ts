@@ -1,10 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUser } from "@/lib/auth";
 
 const terms = ["FIRST", "SECOND", "THIRD"] as const;
 type AcademicTerm = (typeof terms)[number];
 const grade = (percentage: number) => percentage <= 0 ? null : percentage >= 90 ? "A+" : percentage >= 80 ? "A" : percentage >= 70 ? "B+" : percentage >= 60 ? "B" : percentage >= 50 ? "C" : percentage >= 40 ? "D" : "TRY AGAIN";
+
+function selectConfigurations<T extends { subject: string; section: string | null }>(configs: T[], section: string | null) {
+  const selected = new Map<string, T>();
+  for (const config of configs) {
+    if (section && config.section !== null && config.section !== section) continue;
+    const key = config.subject.toLowerCase();
+    const current = selected.get(key);
+    if (!current || (section && config.section === section)) selected.set(key, config);
+  }
+  return [...selected.values()];
+}
 
 export async function GET(request: NextRequest) {
   const user = await getCurrentUser();
@@ -19,8 +29,11 @@ export async function GET(request: NextRequest) {
   const session = await prisma.academicSession.findUnique({ where: { id: sessionId } });
   if (!session) return NextResponse.json({ error: "Academic session not found" }, { status: 404 });
 
-  const configs = await prisma.reportCardSubject.findMany({ where: { sessionId, className, ...(section ? { OR: [{ section }, { section: null }] } : {}), term, active: true }, orderBy: [{ displayOrder: "asc" }, { subject: "asc" }] });
-  const subjects = section ? configs.filter(subject => subject.section === section || !configs.some(other => other.section === section && other.subject.toLowerCase() === subject.subject.toLowerCase())) : configs;
+  const configs = await prisma.reportCardSubject.findMany({
+    where: { sessionId, className, term, active: true, ...(section ? { OR: [{ section }, { section: null }] } : {}) },
+    orderBy: [{ displayOrder: "asc" }, { subject: "asc" }]
+  });
+  const subjects = selectConfigurations(configs, section);
   const exams = await prisma.exam.findMany({ where: { sessionId, term }, include: { papers: { where: { className }, include: { results: { include: { components: true } } } } }, orderBy: { startDate: "desc" } });
   const paperBySubject = new Map<string, (typeof exams)[number]["papers"][number]>();
   for (const exam of exams) for (const paper of exam.papers) if (!paperBySubject.has(paper.subject.toLowerCase())) paperBySubject.set(paper.subject.toLowerCase(), paper);
