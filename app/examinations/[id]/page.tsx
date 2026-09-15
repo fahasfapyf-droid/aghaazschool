@@ -7,7 +7,8 @@ type ResultComponent = Component & { marks: string };
 type Student = { id: string; application?: { studentName?: string; sessionId?: string }; enrollment?: { id: string; className?: string; section?: string } };
 type Result = { id: string; studentId: string; marks: string; grade?: string; remarks?: string | null; components?: ResultComponent[] };
 type Paper = { id: string; className: string; subject: string; maxMarks: string; passMarks: string; results: Result[] };
-type Exam = { id: string; name: string; status: string; term?: string | null; papers: Paper[]; session: { id: string; name: string }; publicationReady?: boolean; publicationErrors?: string[] };
+type PaperReadiness = { paperId: string; subject: string; className: string; expected: number; entered: number; missing: number; invalid: number; ready: boolean };
+type Exam = { id: string; name: string; status: string; term?: string | null; papers: Paper[]; session: { id: string; name: string }; publicationReady?: boolean; publicationErrors?: string[]; paperReadiness?: PaperReadiness[] };
 type Config = { id: string; className: string; section: string | null; term: string; subject: string; maxMarks: number; components: Component[] };
 type ComponentValues = Record<string, Record<string, string>>;
 
@@ -100,6 +101,7 @@ export default function ExamDetail({ params }: { params: Promise<{ id: string }>
     : exam.status === "SCHEDULED"
       ? "Publishing requires a complete, internally consistent result set for every active student in every paper."
       : "Schedule the examination first; administrators can then publish its results.";
+  const readiness = exam.paperReadiness || [];
 
   return <main className="admissions-shell">
     <header className="admissions-header">
@@ -118,6 +120,12 @@ export default function ExamDetail({ params }: { params: Promise<{ id: string }>
         {!exam.publicationReady && exam.publicationErrors?.length ? <ul style={{ margin: "10px 0 0 18px" }}>{exam.publicationErrors.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ul> : null}
       </div>}
     </section>
+    {exam.status !== "PUBLISHED" && readiness.length > 0 && <section className="applications-card">
+      <div className="table-toolbar"><div><h2>Result review</h2><p>Paper-level completion and validation before publication.</p></div></div>
+      <div className="table-wrap"><table><thead><tr><th>Paper</th><th>Entered</th><th>Missing</th><th>Invalid</th><th>Readiness</th></tr></thead>
+        <tbody>{readiness.map(item => <tr key={item.paperId}><td><strong>{item.subject}</strong><small>{item.className}</small></td><td>{item.entered} / {item.expected}</td><td>{item.missing}</td><td>{item.invalid}</td><td>{item.ready ? <span className="status-pill status-published">Ready</span> : <span className="status-pill status-draft">Blocked</span>}</td></tr>)}</tbody>
+      </table></div>
+    </section>}
     {exam.papers.map(p => {
       const config = configs[p.id];
       return <section className="applications-card" key={p.id}>
