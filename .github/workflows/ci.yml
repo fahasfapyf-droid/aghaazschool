@@ -27,5 +27,7 @@ jobs:
         run: npx prisma generate
       - name: Type check
         run: npx tsc --noEmit
+      - name: Verify Aghaaz report card rules
+        run: npm run test:report-card
       - name: Production build
         run: npm run build
