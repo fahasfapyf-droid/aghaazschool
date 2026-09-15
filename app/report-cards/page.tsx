@@ -5,11 +5,11 @@ import { useEffect, useMemo, useState } from "react";
 type Student = { id: string; application?: { studentName?: string }; admissionNumber?: string };
 type ComponentReport = { name: string; maxMarks: number; marks: number };
 type SubjectReport = { subject: string; maxMarks: number; marks: number | null; percentage: number | null; grade: string | null; entered: boolean; remarks?: string | null; components: ComponentReport[] };
-type TermReport = { name: string; subjects: SubjectReport[]; totalMarks: number; obtainedMarks: number };
+type TermReport = { name: string; subjects: SubjectReport[]; totalMarks: number; obtainedMarks: number; enteredSubjects: number; complete: boolean };
 type Report = {
   student: { name: string; guardianName: string; guardianPhone: string; admissionNumber: string; className: string; section?: string; session: string };
   terms: TermReport[];
-  final: { totalMarks: number; obtainedMarks: number; percentage: number; grade: string | null; position: number | null };
+  final: { totalMarks: number; obtainedMarks: number; percentage: number | null; grade: string | null; position: number | null; complete: boolean; enteredSubjects: number; expectedSubjects: number };
   attendance: { total: number; present: number; absent: number; leave: number; percentage: number };
 };
 
@@ -56,7 +56,7 @@ export default function ReportCards() {
   }
 
   const annualGrade = useMemo(
-    () => (report ? gradeLabel(report.final.grade || gradeFromPercentage(report.final.percentage)) : "—"),
+    () => (report?.final.complete ? gradeLabel(report.final.grade || (report.final.percentage === null ? null : gradeFromPercentage(report.final.percentage))) : "PENDING"),
     [report],
   );
 
@@ -113,10 +113,13 @@ export default function ReportCards() {
           </div>
 
           {report.terms.map(term => {
-            const percentage = term.totalMarks ? (term.obtainedMarks / term.totalMarks) * 100 : 0;
+            const percentage = term.complete && term.totalMarks ? (term.obtainedMarks / term.totalMarks) * 100 : null;
             return (
               <section className="term-block" key={term.name}>
-                <div className="term-title"><span>{term.name}</span><small>Term Result</small></div>
+                <div className="term-title">
+                  <span>{term.name}</span>
+                  <small>{term.complete ? "Term Result" : `Pending · ${term.enteredSubjects}/${term.subjects.length}`}</small>
+                </div>
                 <div className="official-table-wrap">
                   <table className="official-table">
                     <thead>
@@ -140,7 +143,7 @@ export default function ReportCards() {
                     </tbody>
                     <tfoot>
                       <tr>
-                        <th>Term Total</th><th></th><th>{term.totalMarks}</th><th>{term.obtainedMarks}</th><th>{percentage.toFixed(2)}%</th><th>{gradeLabel(gradeFromPercentage(percentage))}</th>
+                        <th>Term Total</th><th></th><th>{term.totalMarks}</th><th>{term.obtainedMarks}</th><th>{percentage === null ? "—" : `${percentage.toFixed(2)}%`}</th><th>{percentage === null ? "PENDING" : gradeLabel(gradeFromPercentage(percentage))}</th>
                       </tr>
                     </tfoot>
                   </table>
@@ -151,13 +154,17 @@ export default function ReportCards() {
 
           <section className="annual-panel">
             <div className="annual-heading">
-              <div><div className="eyebrow">Final Academic Result</div><h2>Annual Result</h2></div>
+              <div>
+                <div className="eyebrow">Final Academic Result</div>
+                <h2>Annual Result</h2>
+                {!report.final.complete && <p className="pending-note">Result is pending until all configured term subjects have marks.</p>}
+              </div>
               <div className="final-grade"><span>Grade</span><strong>{annualGrade}</strong></div>
             </div>
             <div className="annual-grid">
               <div><span>Total Marks</span><strong>{report.final.totalMarks}</strong></div>
-              <div><span>Obtained Marks</span><strong>{report.final.obtainedMarks}</strong></div>
-              <div><span>Percentage</span><strong>{report.final.percentage.toFixed(2)}%</strong></div>
+              <div><span>Obtained Marks</span><strong>{report.final.complete ? report.final.obtainedMarks : "—"}</strong></div>
+              <div><span>Percentage</span><strong>{report.final.percentage === null ? "—" : `${report.final.percentage.toFixed(2)}%`}</strong></div>
               <div><span>Class Position</span><strong>{report.final.position || "—"}</strong></div>
             </div>
           </section>
@@ -190,7 +197,7 @@ export default function ReportCards() {
       <style jsx global>{`
         @page{size:A4 portrait;margin:10mm}
         @media print{body{background:#fff!important}.sidebar,.topbar,.report-toolbar,.error,.empty-state{display:none!important}.main-content{margin:0!important;width:100%!important}.container.report-page{max-width:none!important;padding:0!important}.official-report{box-shadow:none!important;border:1px solid #333!important;margin:0!important}.term-block{break-inside:avoid}.annual-panel,.attendance-panel,.remarks,.report-signatures{break-inside:avoid}.official-table{min-width:0!important}.official-table th,.official-table td{padding:6px!important;font-size:9px!important}.components span{background:#fff!important}.remark-list p{font-size:9px!important}.report-footer{font-size:7px!important}}
-        .report-page{max-width:1200px}.report-toolbar{margin-bottom:20px}.report-controls{display:flex;gap:10px;align-items:center}.official-report{background:#fff;border:1px solid #d9d9e2;box-shadow:0 15px 40px rgba(30,30,60,.08);padding:34px 38px;color:#20222d}.report-school-head{display:flex;align-items:center;justify-content:center;text-align:center;gap:15px;padding-bottom:20px;border-bottom:2px solid #292b35}.school-emblem{width:54px;height:54px;border-radius:50%;display:grid;place-items:center;background:#292b35;color:#fff;font-size:26px;font-weight:900}.report-school-name{font-size:25px;font-weight:900;letter-spacing:.16em}.report-school-subtitle{font-size:12px;font-weight:800;letter-spacing:.18em;margin-top:5px}.report-session{font-size:11px;color:#70727e;margin-top:7px}.student-meta{display:grid;grid-template-columns:1.4fr 1.3fr .9fr 1fr;border:1px solid #dfe0e6;margin-top:22px}.student-meta>div{padding:11px 13px;border-right:1px solid #dfe0e6}.student-meta>div:last-child{border-right:0}.student-meta span,.annual-grid span,.final-grade span,.attendance-panel span{display:block;text-transform:uppercase;font-size:8px;letter-spacing:.08em;color:#777986;font-weight:800;margin-bottom:4px}.student-meta strong{font-size:12px}.term-block{margin-top:22px}.term-title{display:flex;justify-content:space-between;align-items:center;background:#f1f0f8;border:1px solid #d8d7e2;border-bottom:0;padding:9px 12px}.term-title span{font-size:13px;font-weight:900;text-transform:uppercase;letter-spacing:.06em}.term-title small{font-size:9px;color:#737582;text-transform:uppercase;font-weight:800}.official-table-wrap{overflow-x:auto}.official-table{min-width:760px;width:100%;border-collapse:collapse}.official-table th{background:#f8f8fb;color:#4e505d;text-transform:uppercase;font-size:8px;letter-spacing:.05em;padding:8px;border:1px solid #dfe0e6}.official-table td{font-size:10px;padding:8px;border:1px solid #e1e2e7;color:#333541;vertical-align:middle}.official-table tbody tr:nth-child(even){background:#fbfbfd}.subject-name{font-weight:800!important}.components{display:flex;flex-wrap:wrap;gap:5px}.components span{display:inline-block;background:#f3f3f7;border:1px solid #e2e2e8;border-radius:4px;padding:3px 5px;font-size:8px}.components b{font-size:8px}.marks,.grade{font-weight:900!important}.official-table tfoot th{background:#ecebf4;font-size:9px}.annual-panel{margin-top:25px;border:1px solid #cfd0d9}.annual-heading{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid #dfe0e6}.annual-heading h2{font-size:18px;margin:3px 0 0}.final-grade{text-align:center;min-width:90px}.final-grade strong{font-size:20px}.annual-grid{display:grid;grid-template-columns:repeat(4,1fr)}.annual-grid>div{padding:14px 16px;border-right:1px solid #dfe0e6}.annual-grid>div:last-child{border-right:0}.annual-grid strong{font-size:17px}.attendance-panel{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-top:15px;padding:12px 15px;background:#f7f7fa;border:1px solid #dfe0e6}.attendance-panel>div{display:flex;align-items:center;gap:12px}.attendance-panel>div strong{font-size:18px}.attendance-panel p{margin:0;font-size:9px;color:#5e606b}.remarks{margin-top:20px}.remarks h3{font-size:11px;text-transform:uppercase;letter-spacing:.08em;margin:0 0 7px}.remark-list{border:1px solid #dfe0e6;padding:8px 12px}.remark-list p{margin:0 0 5px;font-size:9px;color:#484a55}.remark-list p:last-child{margin-bottom:0}.remark-lines{display:grid;gap:15px}.remark-lines span{display:block;height:15px;border-bottom:1px solid #aaa}.report-signatures{display:grid;grid-template-columns:1fr 1fr 1fr;gap:55px;margin-top:40px}.report-signatures div{display:grid;gap:7px;text-align:center}.report-signatures span{font-size:9px;font-weight:800}.report-signatures i{display:block;border-top:1px solid #444}.report-footer{text-align:center;margin-top:24px;padding-top:9px;border-top:1px solid #ddd;font-size:8px;color:#888}
+        .report-page{max-width:1200px}.report-toolbar{margin-bottom:20px}.report-controls{display:flex;gap:10px;align-items:center}.official-report{background:#fff;border:1px solid #d9d9e2;box-shadow:0 15px 40px rgba(30,30,60,.08);padding:34px 38px;color:#20222d}.report-school-head{display:flex;align-items:center;justify-content:center;text-align:center;gap:15px;padding-bottom:20px;border-bottom:2px solid #292b35}.school-emblem{width:54px;height:54px;border-radius:50%;display:grid;place-items:center;background:#292b35;color:#fff;font-size:26px;font-weight:900}.report-school-name{font-size:25px;font-weight:900;letter-spacing:.16em}.report-school-subtitle{font-size:12px;font-weight:800;letter-spacing:.18em;margin-top:5px}.report-session{font-size:11px;color:#70727e;margin-top:7px}.student-meta{display:grid;grid-template-columns:1.4fr 1.3fr .9fr 1fr;border:1px solid #dfe0e6;margin-top:22px}.student-meta>div{padding:11px 13px;border-right:1px solid #dfe0e6}.student-meta>div:last-child{border-right:0}.student-meta span,.annual-grid span,.final-grade span,.attendance-panel span{display:block;text-transform:uppercase;font-size:8px;letter-spacing:.08em;color:#777986;font-weight:800;margin-bottom:4px}.student-meta strong{font-size:12px}.term-block{margin-top:22px}.term-title{display:flex;justify-content:space-between;align-items:center;background:#f1f0f8;border:1px solid #d8d7e2;border-bottom:0;padding:9px 12px}.term-title span{font-size:13px;font-weight:900;text-transform:uppercase;letter-spacing:.06em}.term-title small{font-size:9px;color:#737582;text-transform:uppercase;font-weight:800}.official-table-wrap{overflow-x:auto}.official-table{min-width:760px;width:100%;border-collapse:collapse}.official-table th{background:#f8f8fb;color:#4e505d;text-transform:uppercase;font-size:8px;letter-spacing:.05em;padding:8px;border:1px solid #dfe0e6}.official-table td{font-size:10px;padding:8px;border:1px solid #e1e2e7;color:#333541;vertical-align:middle}.official-table tbody tr:nth-child(even){background:#fbfbfd}.subject-name{font-weight:800!important}.components{display:flex;flex-wrap:wrap;gap:5px}.components span{display:inline-block;background:#f3f3f7;border:1px solid #e2e2e8;border-radius:4px;padding:3px 5px;font-size:8px}.components b{font-size:8px}.marks,.grade{font-weight:900!important}.official-table tfoot th{background:#ecebf4;font-size:9px}.annual-panel{margin-top:25px;border:1px solid #cfd0d9}.annual-heading{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid #dfe0e6}.annual-heading h2{font-size:18px;margin:3px 0 0}.pending-note{margin:4px 0 0;font-size:10px;color:#777986}.final-grade{text-align:center;min-width:90px}.final-grade strong{font-size:20px}.annual-grid{display:grid;grid-template-columns:repeat(4,1fr)}.annual-grid>div{padding:14px 16px;border-right:1px solid #dfe0e6}.annual-grid>div:last-child{border-right:0}.annual-grid strong{font-size:17px}.attendance-panel{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-top:15px;padding:12px 15px;background:#f7f7fa;border:1px solid #dfe0e6}.attendance-panel>div{display:flex;align-items:center;gap:12px}.attendance-panel>div strong{font-size:18px}.attendance-panel p{margin:0;font-size:9px;color:#5e606b}.remarks{margin-top:20px}.remarks h3{font-size:11px;text-transform:uppercase;letter-spacing:.08em;margin:0 0 7px}.remark-list{border:1px solid #dfe0e6;padding:8px 12px}.remark-list p{margin:0 0 5px;font-size:9px;color:#484a55}.remark-list p:last-child{margin-bottom:0}.remark-lines{display:grid;gap:15px}.remark-lines span{display:block;height:15px;border-bottom:1px solid #aaa}.report-signatures{display:grid;grid-template-columns:1fr 1fr 1fr;gap:55px;margin-top:40px}.report-signatures div{display:grid;gap:7px;text-align:center}.report-signatures span{font-size:9px;font-weight:800}.report-signatures i{display:block;border-top:1px solid #444}.report-footer{text-align:center;margin-top:24px;padding-top:9px;border-top:1px solid #ddd;font-size:8px;color:#888}
       `}</style>
     </main>
   );
