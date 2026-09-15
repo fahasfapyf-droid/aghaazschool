@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 
 export type ReportCardReleaseRecord = {
@@ -50,7 +51,7 @@ export async function createReportCardRelease(input: {
 }) {
   const rows = await prisma.$queryRaw<ReportCardReleaseRecord[]>(Prisma.sql`
     INSERT INTO "ReportCardRelease" (id, "studentId", "sessionId", snapshot, "snapshotHash", "releasedBy", "releasedAt")
-    VALUES (gen_random_uuid()::text, ${input.studentId}, ${input.sessionId}, ${JSON.stringify(input.snapshot)}::jsonb, ${input.snapshotHash}, ${input.releasedBy}, CURRENT_TIMESTAMP)
+    VALUES (${randomUUID()}, ${input.studentId}, ${input.sessionId}, ${JSON.stringify(input.snapshot)}::jsonb, ${input.snapshotHash}, ${input.releasedBy}, CURRENT_TIMESTAMP)
     RETURNING id, "studentId", "sessionId", snapshot, "snapshotHash", "releasedBy", "releasedAt"
   `);
   return rows[0];
