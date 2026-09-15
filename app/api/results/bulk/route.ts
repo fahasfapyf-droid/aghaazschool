@@ -3,34 +3,12 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { requestAuditContext, writeAuditLog } from "@/lib/audit";
+import { hasReportCardRelease } from "@/lib/report-card-release";
 
-const componentSchema = z.object({
-  name: z.string().trim().min(1),
-  maxMarks: z.coerce.number().positive(),
-  marks: z.coerce.number().min(0),
-});
-
-const entrySchema = z.object({
-  studentId: z.string().min(1),
-  marks: z.coerce.number().min(0).optional(),
-  components: z.array(componentSchema).optional(),
-  remarks: z.string().trim().max(2000).optional(),
-}).refine(entry => entry.marks !== undefined || entry.components !== undefined, { message: "Marks or assessment components are required" });
-
+const componentSchema = z.object({ name: z.string().trim().min(1), maxMarks: z.coerce.number().positive(), marks: z.coerce.number().min(0) });
+const entrySchema = z.object({ studentId: z.string().min(1), marks: z.coerce.number().min(0).optional(), components: z.array(componentSchema).optional(), remarks: z.string().trim().max(2000).optional() }).refine(entry => entry.marks !== undefined || entry.components !== undefined, { message: "Marks or assessment components are required" });
 const bulkSchema = z.object({ paperId: z.string().min(1), entries: z.array(entrySchema).min(1).max(200) });
-
-function grade(marks: number, maxMarks: number) {
-  const percentage = maxMarks ? (marks / maxMarks) * 100 : 0;
-  if (marks <= 0) return null;
-  if (percentage >= 90) return "A_PLUS";
-  if (percentage >= 80) return "A";
-  if (percentage >= 70) return "B_PLUS";
-  if (percentage >= 60) return "B";
-  if (percentage >= 50) return "C";
-  if (percentage >= 40) return "D";
-  return "TRY_AGAIN";
-}
-
+function grade(marks: number, maxMarks: number) { const percentage = maxMarks ? (marks / maxMarks) * 100 : 0; if (marks <= 0) return null; if (percentage >= 90) return "A_PLUS"; if (percentage >= 80) return "A"; if (percentage >= 70) return "B_PLUS"; if (percentage >= 60) return "B"; if (percentage >= 50) return "C"; if (percentage >= 40) return "D"; return "TRY_AGAIN"; }
 function canEnterResults(role?: string) { return role === "SUPER_ADMIN" || role === "ADMIN" || role === "TEACHER"; }
 
 export async function POST(req: NextRequest) {
@@ -50,6 +28,9 @@ export async function POST(req: NextRequest) {
     if (students.length !== studentIds.length) return NextResponse.json({ error: "One or more students are not active or were not found" }, { status: 400 });
     if (students.some(student => student.className !== paper.className)) return NextResponse.json({ error: "All selected students must belong to the paper's class" }, { status: 400 });
     if (students.some(student => student.application.sessionId !== paper.exam.sessionId)) return NextResponse.json({ error: "All selected students must belong to the examination's academic session" }, { status: 400 });
+    const releasedStudents = await Promise.all(students.map(async student => ({ id: student.id, released: await hasReportCardRelease(student.id, student.application.sessionId) })));
+    const blocked = releasedStudents.filter(student => student.released).map(student => student.id);
+    if (blocked.length) return NextResponse.json({ error: "One or more selected students have officially released report cards and cannot be modified", studentIds: blocked }, { status: 409 });
 
     const studentMap = new Map(students.map(student => [student.id, student]));
     const maxMarks = Number(paper.maxMarks);
@@ -59,13 +40,9 @@ export async function POST(req: NextRequest) {
 
     let configured = null;
     if (paper.exam.term) {
-      const configs = await prisma.reportCardSubject.findMany({
-        where: { sessionId: paper.exam.sessionId, className: paper.className, term: paper.exam.term, subject: paper.subject, active: true, OR: [{ section }, { section: null }] },
-        include: { components: { orderBy: { displayOrder: "asc" } } },
-      });
+      const configs = await prisma.reportCardSubject.findMany({ where: { sessionId: paper.exam.sessionId, className: paper.className, term: paper.exam.term, subject: paper.subject, active: true, OR: [{ section }, { section: null }] }, include: { components: { orderBy: { displayOrder: "asc" } } } });
       configured = configs.find(item => item.section === section) || configs.find(item => item.section === null) || null;
     }
-
     if (configured && Math.abs(Number(configured.maxMarks) - maxMarks) > 0.01) return NextResponse.json({ error: `Exam paper maximum (${maxMarks}) does not match configured maximum (${configured.maxMarks})` }, { status: 400 });
     const configuredComponents = configured?.components ?? [];
 
@@ -82,10 +59,7 @@ export async function POST(req: NextRequest) {
         if (configuredComponents.length) {
           if (components.length !== configuredComponents.length) return NextResponse.json({ error: "Submitted assessment components do not match the configured subject" }, { status: 400 });
           const configuredByName = new Map(configuredComponents.map(component => [component.name.toLowerCase(), Number(component.maxMarks)]));
-          for (const component of components) {
-            const configuredMax = configuredByName.get(component.name.toLowerCase());
-            if (configuredMax === undefined || Math.abs(configuredMax - component.maxMarks) > 0.01) return NextResponse.json({ error: `Assessment component '${component.name}' does not match the configured subject` }, { status: 400 });
-          }
+          for (const component of components) { const configuredMax = configuredByName.get(component.name.toLowerCase()); if (configuredMax === undefined || Math.abs(configuredMax - component.maxMarks) > 0.01) return NextResponse.json({ error: `Assessment component '${component.name}' does not match the configured subject` }, { status: 400 }); }
         }
         if (componentMarks > maxMarks) return NextResponse.json({ error: `Marks cannot exceed ${maxMarks}` }, { status: 400 });
       } else if ((entry.marks ?? 0) > maxMarks) return NextResponse.json({ error: `Marks cannot exceed ${maxMarks}` }, { status: 400 });
@@ -97,12 +71,7 @@ export async function POST(req: NextRequest) {
       for (const entry of body.entries) {
         const components = entry.components;
         const marks = components?.length ? components.reduce((sum, component) => sum + component.marks, 0) : entry.marks!;
-        const result = await tx.result.upsert({
-          where: { paperId_studentId: { paperId: body.paperId, studentId: entry.studentId } },
-          create: { paperId: body.paperId, studentId: entry.studentId, marks, grade: grade(marks, maxMarks), remarks: entry.remarks, components: components?.length ? { create: components.map(component => ({ name: component.name, maxMarks: component.maxMarks, marks: component.marks })) } : undefined },
-          update: { marks, grade: grade(marks, maxMarks), remarks: entry.remarks, components: components ? { deleteMany: {}, create: components.map(component => ({ name: component.name, maxMarks: component.maxMarks, marks: component.marks })) } : undefined },
-          select: { id: true, studentId: true, marks: true, grade: true },
-        });
+        const result = await tx.result.upsert({ where: { paperId_studentId: { paperId: body.paperId, studentId: entry.studentId } }, create: { paperId: body.paperId, studentId: entry.studentId, marks, grade: grade(marks, maxMarks), remarks: entry.remarks, components: components?.length ? { create: components.map(component => ({ name: component.name, maxMarks: component.maxMarks, marks: component.marks })) } : undefined }, update: { marks, grade: grade(marks, maxMarks), remarks: entry.remarks, components: components ? { deleteMany: {}, create: components.map(component => ({ name: component.name, maxMarks: component.maxMarks, marks: component.marks })) } : undefined }, select: { id: true, studentId: true, marks: true, grade: true } });
         saved.push(result);
       }
       return saved;
