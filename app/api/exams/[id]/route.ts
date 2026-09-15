@@ -4,19 +4,9 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { requestAuditContext, writeAuditLog } from "@/lib/audit";
 
-const patchSchema = z.object({
-  name: z.string().min(2).optional(),
-  status: z.enum(["DRAFT", "SCHEDULED", "PUBLISHED"]).optional(),
-  startDate: z.string().optional(),
-  endDate: z.string().optional(),
-});
-
+const patchSchema = z.object({ name: z.string().min(2).optional(), status: z.enum(["DRAFT", "SCHEDULED", "PUBLISHED"]).optional(), startDate: z.string().optional(), endDate: z.string().optional() });
 const adminRoles = new Set(["SUPER_ADMIN", "ADMIN"]);
-const allowedTransitions: Record<string, string[]> = {
-  DRAFT: ["SCHEDULED"],
-  SCHEDULED: ["PUBLISHED"],
-  PUBLISHED: ["SCHEDULED"],
-};
+const allowedTransitions: Record<string, string[]> = { DRAFT: ["SCHEDULED"], SCHEDULED: ["PUBLISHED"], PUBLISHED: ["SCHEDULED"] };
 
 function grade(marks: number, maxMarks: number) {
   const percentage = maxMarks ? (marks / maxMarks) * 100 : 0;
@@ -31,37 +21,20 @@ function grade(marks: number, maxMarks: number) {
 }
 
 async function validatePublication(examId: string, sessionId: string) {
-  const papers = await prisma.examPaper.findMany({
-    where: { examId },
-    include: { results: { include: { components: true } } },
-    orderBy: [{ className: "asc" }, { subject: "asc" }],
-  });
-
+  const papers = await prisma.examPaper.findMany({ where: { examId }, include: { results: { include: { components: true } } }, orderBy: [{ className: "asc" }, { subject: "asc" }] });
   if (!papers.length) return ["An examination must have at least one paper before it can be published"];
-
   const errors: string[] = [];
   for (const paper of papers) {
-    const students = await prisma.enrollment.findMany({
-      where: { className: paper.className, status: "active", application: { sessionId } },
-      select: { id: true },
-    });
-    if (!students.length) {
-      errors.push(`${paper.subject} (${paper.className}): no active students are enrolled for this examination session`);
-      continue;
-    }
-
+    const students = await prisma.enrollment.findMany({ where: { className: paper.className, status: "active", application: { sessionId } }, select: { id: true } });
+    if (!students.length) { errors.push(`${paper.subject} (${paper.className}): no active students are enrolled for this examination session`); continue; }
     const expectedIds = new Set(students.map(student => student.id));
     const resultByStudent = new Map(paper.results.filter(result => expectedIds.has(result.studentId)).map(result => [result.studentId, result]));
     const missing = students.filter(student => !resultByStudent.has(student.id)).length;
     if (missing) errors.push(`${paper.subject} (${paper.className}): ${missing} active student result${missing === 1 ? "" : "s"} missing`);
-
     const maxMarks = Number(paper.maxMarks);
     for (const result of resultByStudent.values()) {
       const marks = Number(result.marks);
-      if (!Number.isFinite(marks) || marks < 0 || marks > maxMarks) {
-        errors.push(`${paper.subject} (${paper.className}): invalid marks for result ${result.id}`);
-        continue;
-      }
+      if (!Number.isFinite(marks) || marks < 0 || marks > maxMarks) { errors.push(`${paper.subject} (${paper.className}): invalid marks for result ${result.id}`); continue; }
       if (result.components.length) {
         const componentMax = result.components.reduce((sum, component) => sum + Number(component.maxMarks), 0);
         const componentMarks = result.components.reduce((sum, component) => sum + Number(component.marks), 0);
@@ -69,31 +42,20 @@ async function validatePublication(examId: string, sessionId: string) {
         if (Math.abs(componentMarks - marks) > 0.01) errors.push(`${paper.subject} (${paper.className}): component marks do not equal the saved subject mark`);
         if (result.components.some(component => Number(component.marks) < 0 || Number(component.marks) > Number(component.maxMarks))) errors.push(`${paper.subject} (${paper.className}): a component mark exceeds its maximum`);
       }
-      const expectedGrade = grade(marks, maxMarks);
-      if (result.grade !== expectedGrade) errors.push(`${paper.subject} (${paper.className}): saved grade does not match the marks for result ${result.id}`);
+      if (result.grade !== grade(marks, maxMarks)) errors.push(`${paper.subject} (${paper.className}): saved grade does not match the marks for result ${result.id}`);
     }
   }
   return errors;
 }
 
 export async function GET(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const user = await getCurrentUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await params;
-  const exam = await prisma.exam.findUnique({
-    where: { id },
-    include: {
-      session: true,
-      papers: {
-        include: {
-          results: {
-            include: { components: true, student: { include: { application: true } } },
-            orderBy: { student: { application: { studentName: "asc" } } },
-          },
-        },
-      },
-    },
-  });
+  const exam = await prisma.exam.findUnique({ where: { id }, include: { session: true, papers: { include: { results: { include: { components: true, student: { include: { application: true } } }, orderBy: { student: { application: { studentName: "asc" } } } } } } } });
   if (!exam) return NextResponse.json({ error: "Examination not found" }, { status: 404 });
-  return NextResponse.json(exam);
+  const publicationErrors = exam.status === "PUBLISHED" ? [] : await validatePublication(id, exam.sessionId);
+  return NextResponse.json({ ...exam, publicationReady: publicationErrors.length === 0, publicationErrors: publicationErrors.slice(0, 20) });
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -101,12 +63,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const user = await getCurrentUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     if (!adminRoles.has(user.role)) return NextResponse.json({ error: "Only administrators can change examination status" }, { status: 403 });
-
     const { id } = await params;
     const body = patchSchema.parse(await req.json());
     const current = await prisma.exam.findUnique({ where: { id }, include: { _count: { select: { papers: true } } } });
     if (!current) return NextResponse.json({ error: "Examination not found" }, { status: 404 });
-
     if (body.status && body.status !== current.status) {
       const allowed = allowedTransitions[current.status] || [];
       if (!allowed.includes(body.status)) return NextResponse.json({ error: `Invalid examination status transition: ${current.status} → ${body.status}` }, { status: 400 });
@@ -115,37 +75,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         if (publicationErrors.length) return NextResponse.json({ error: "Examination is not ready for publication", details: publicationErrors.slice(0, 20) }, { status: 409 });
       }
     }
-
     const startDate = body.startDate ? new Date(body.startDate) : current.startDate;
     const endDate = body.endDate ? new Date(body.endDate) : current.endDate;
     if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime()) || endDate < startDate) return NextResponse.json({ error: "Invalid examination dates" }, { status: 400 });
-
-    const exam = await prisma.exam.update({
-      where: { id },
-      data: { name: body.name, status: body.status, startDate, endDate },
-      include: { session: true, _count: { select: { papers: true } } },
-    });
-
-    if (body.status && body.status !== current.status) {
-      await writeAuditLog({
-        userId: user.id,
-        action: body.status === "PUBLISHED" ? "EXAM_PUBLISHED" : "EXAM_UNPUBLISHED",
-        entityType: "Exam",
-        entityId: exam.id,
-        metadata: { from: current.status, to: body.status, paperCount: current._count.papers },
-        context: requestAuditContext(req),
-      });
-    } else if (body.name || body.startDate || body.endDate) {
-      await writeAuditLog({
-        userId: user.id,
-        action: "EXAM_UPDATED",
-        entityType: "Exam",
-        entityId: exam.id,
-        metadata: { nameChanged: Boolean(body.name), datesChanged: Boolean(body.startDate || body.endDate) },
-        context: requestAuditContext(req),
-      });
-    }
-
+    const exam = await prisma.exam.update({ where: { id }, data: { name: body.name, status: body.status, startDate, endDate }, include: { session: true, _count: { select: { papers: true } } } });
+    if (body.status && body.status !== current.status) await writeAuditLog({ userId: user.id, action: body.status === "PUBLISHED" ? "EXAM_PUBLISHED" : "EXAM_UNPUBLISHED", entityType: "Exam", entityId: exam.id, metadata: { from: current.status, to: body.status, paperCount: current._count.papers }, context: requestAuditContext(req) });
+    else if (body.name || body.startDate || body.endDate) await writeAuditLog({ userId: user.id, action: "EXAM_UPDATED", entityType: "Exam", entityId: exam.id, metadata: { nameChanged: Boolean(body.name), datesChanged: Boolean(body.startDate || body.endDate) }, context: requestAuditContext(req) });
     return NextResponse.json(exam);
   } catch (e) {
     return NextResponse.json({ error: e instanceof z.ZodError ? "Invalid examination update" : e instanceof Error ? e.message : "Unable to update examination" }, { status: 400 });
