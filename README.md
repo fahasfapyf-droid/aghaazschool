@@ -43,7 +43,7 @@ Enquiry → Application → Document Verification → Assessment → Decision �
 4. Apply the schema/migrations appropriate to the environment.
 5. Start the app with `npm run dev`.
 
-For production, use the versioned migration workflow:
+For production, use the versioned migration workflow. For a fresh database, or an existing database that already has its migration history aligned:
 
 ```bash
 npm run db:deploy
@@ -51,4 +51,6 @@ npm run build
 npm start
 ```
 
-Do not use `prisma db push` against the production database. The official report-card release table is created by the versioned migrations under `prisma/migrations/`.
+If an existing production database was originally created with `prisma db push`, follow [`docs/production-migration.md`](docs/production-migration.md) before the first `migrate deploy`.
+
+Do not use `prisma db push` against the production database. All future production schema changes must be committed as versioned migrations under `prisma/migrations/`.
