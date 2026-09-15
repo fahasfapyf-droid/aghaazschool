@@ -48,7 +48,14 @@ export async function POST(req: NextRequest) {
 
     const maxMarks = Number(paper.maxMarks);
     const configured = paper.exam.term ? await prisma.reportCardSubject.findFirst({
-      where: { sessionId: paper.exam.sessionId, className: paper.className, term: paper.exam.term, subject: paper.subject, active: true },
+      where: {
+        sessionId: paper.exam.sessionId,
+        className: paper.className,
+        section: student.section || null,
+        term: paper.exam.term,
+        subject: paper.subject,
+        active: true
+      },
       include: { components: { orderBy: { displayOrder: "asc" } } }
     }) : null;
 
