@@ -31,5 +31,7 @@ jobs:
         run: npm run test:report-card
       - name: Verify Aghaaz Class IB configuration
         run: npm run test:aghaaz-config
+      - name: Verify term-specific subjects
+        run: npm run test:term-subjects
       - name: Production build
         run: npm run build
