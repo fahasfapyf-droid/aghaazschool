@@ -8,11 +8,13 @@
     "start": "next start",
     "lint": "next lint",
     "test:report-card": "node scripts/verify-aghaaz-report-card-rules.mjs",
+    "test:aghaaz-config": "node scripts/verify-aghaaz-class-ib-config.mjs",
     "db:generate": "prisma generate",
     "db:validate": "prisma validate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
-    "db:seed-admin": "node scripts/create-admin.mjs"
+    "db:seed-admin": "node scripts/create-admin.mjs",
+    "db:seed-aghaaz-class-ib": "node scripts/seed-aghaaz-class-ib-2025-26.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.14.0",
