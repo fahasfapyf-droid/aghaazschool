@@ -1,6 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { getCurrentUser, roleAllowed } from "@/lib/auth";
+import type { UserRole } from "@prisma/client";
+
+const TIMETABLE_ROLES: UserRole[] = ["SUPER_ADMIN", "ADMIN", "TEACHER"];
+
+async function authorized() {
+  const user = await getCurrentUser();
+  if (!user) return { response: NextResponse.json({ error: "Authentication required." }, { status: 401 }) };
+  if (!roleAllowed(user.role, TIMETABLE_ROLES)) return { response: NextResponse.json({ error: "You do not have permission to manage the timetable." }, { status: 403 }) };
+  return { user };
+}
 
 const entrySchema = z.object({
   dayOfWeek: z.enum(["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"]),
@@ -15,20 +26,18 @@ const entrySchema = z.object({
 });
 
 export async function GET(request: NextRequest) {
+  const auth = await authorized();
+  if (auth.response) return auth.response;
   const params = new URL(request.url).searchParams;
   const className = params.get("class")?.trim();
   const dayOfWeek = params.get("day")?.trim();
-  const entries = await prisma.timetableEntry.findMany({
-    where: {
-      ...(className ? { className: { equals: className, mode: "insensitive" } } : {}),
-      ...(dayOfWeek ? { dayOfWeek: dayOfWeek as never } : {}),
-    },
-    orderBy: [{ dayOfWeek: "asc" }, { period: "asc" }],
-  });
+  const entries = await prisma.timetableEntry.findMany({ where: { ...(className ? { className: { equals: className, mode: "insensitive" } } : {}), ...(dayOfWeek ? { dayOfWeek: dayOfWeek as never } : {}) }, orderBy: [{ dayOfWeek: "asc" }, { period: "asc" }] });
   return NextResponse.json(entries);
 }
 
 export async function POST(request: NextRequest) {
+  const auth = await authorized();
+  if (auth.response) return auth.response;
   try {
     const body = entrySchema.parse(await request.json());
     if (body.endTime <= body.startTime) return NextResponse.json({ error: "End time must be after start time." }, { status: 400 });
@@ -41,8 +50,10 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
+  const auth = await authorized();
+  if (auth.response) return auth.response;
   try {
-    const id = new URL(request.url).searchParams.get("id");
+    const id = request.nextUrl.searchParams.get("id");
     if (!id) return NextResponse.json({ error: "Entry id is required." }, { status: 400 });
     const body = entrySchema.partial().parse(await request.json());
     const entry = await prisma.timetableEntry.update({ where: { id }, data: body });
@@ -54,7 +65,9 @@ export async function PATCH(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const id = new URL(request.url).searchParams.get("id");
+  const auth = await authorized();
+  if (auth.response) return auth.response;
+  const id = request.nextUrl.searchParams.get("id");
   if (!id) return NextResponse.json({ error: "Entry id is required." }, { status: 400 });
   await prisma.timetableEntry.delete({ where: { id } });
   return NextResponse.json({ success: true });
