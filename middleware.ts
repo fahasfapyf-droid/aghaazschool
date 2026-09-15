@@ -12,6 +12,18 @@ const roleRules: Array<[string, string[]]> = [
   ["/homework", ["SUPER_ADMIN", "ADMIN", "TEACHER"]],
   ["/communication", ["SUPER_ADMIN", "ADMIN", "RECEPTIONIST"]],
   ["/leave", ["SUPER_ADMIN", "ADMIN", "TEACHER", "RECEPTIONIST"]],
+  ["/students", ["SUPER_ADMIN", "ADMIN", "TEACHER", "RECEPTIONIST"]],
+  ["/api/admissions", ["SUPER_ADMIN", "ADMIN", "RECEPTIONIST"]],
+  ["/api/fees", ["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"]],
+  ["/api/attendance", ["SUPER_ADMIN", "ADMIN", "TEACHER"]],
+  ["/api/examinations", ["SUPER_ADMIN", "ADMIN", "TEACHER"]],
+  ["/api/results", ["SUPER_ADMIN", "ADMIN", "TEACHER"]],
+  ["/api/timetable", ["SUPER_ADMIN", "ADMIN", "TEACHER"]],
+  ["/api/homework", ["SUPER_ADMIN", "ADMIN", "TEACHER"]],
+  ["/api/communication", ["SUPER_ADMIN", "ADMIN", "RECEPTIONIST"]],
+  ["/api/leave", ["SUPER_ADMIN", "ADMIN", "TEACHER", "RECEPTIONIST"]],
+  ["/api/students", ["SUPER_ADMIN", "ADMIN", "TEACHER", "RECEPTIONIST"]],
+  ["/api/dashboard", ["SUPER_ADMIN", "ADMIN", "TEACHER", "ACCOUNTANT", "RECEPTIONIST"]],
 ];
 
 function requiredRoles(pathname: string) {
@@ -19,25 +31,35 @@ function requiredRoles(pathname: string) {
   return null;
 }
 
+function secureResponse(response: NextResponse) {
+  response.headers.set("X-Content-Type-Options", "nosniff");
+  response.headers.set("X-Frame-Options", "DENY");
+  response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  response.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  response.headers.set("X-DNS-Prefetch-Control", "off");
+  return response;
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  if (publicPaths.has(pathname)) return NextResponse.next();
   if (pathname.startsWith("/_next") || pathname === "/favicon.ico") return NextResponse.next();
+  if (publicPaths.has(pathname)) return secureResponse(NextResponse.next());
 
   const session = await verifySessionTokenEdge(request.cookies.get(SESSION_COOKIE)?.value);
   if (!session) {
-    if (pathname.startsWith("/api/")) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+    if (pathname.startsWith("/api/")) return secureResponse(NextResponse.json({ error: "Authentication required." }, { status: 401 }));
     const login = new URL("/login", request.url);
     login.searchParams.set("next", pathname);
-    return NextResponse.redirect(login);
+    return secureResponse(NextResponse.redirect(login));
   }
 
   const roles = requiredRoles(pathname);
   if (roles && !roles.includes(session.role)) {
-    if (pathname.startsWith("/api/")) return NextResponse.json({ error: "You do not have permission to access this resource." }, { status: 403 });
-    return NextResponse.redirect(new URL("/", request.url));
+    if (pathname.startsWith("/api/")) return secureResponse(NextResponse.json({ error: "You do not have permission to access this resource." }, { status: 403 }));
+    return secureResponse(NextResponse.redirect(new URL("/", request.url)));
   }
-  return NextResponse.next();
+
+  return secureResponse(NextResponse.next());
 }
 
 export const config = { matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"] };
