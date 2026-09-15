@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { requestAuditContext, writeAuditLog } from "@/lib/audit";
+import { hasReportCardRelease } from "@/lib/report-card-release";
 
 const componentSchema = z.object({ name: z.string().trim().min(1), maxMarks: z.coerce.number().positive(), marks: z.coerce.number().min(0) });
 const resultSchema = z.object({ paperId: z.string(), studentId: z.string(), marks: z.coerce.number().min(0).optional(), components: z.array(componentSchema).optional(), remarks: z.string().trim().max(2000).optional() }).refine(value => value.marks !== undefined || value.components !== undefined, { message: "Marks or assessment components are required" });
@@ -31,6 +32,7 @@ export async function POST(req: NextRequest) {
     if (!student) return NextResponse.json({ error: "Student not found" }, { status: 404 });
     if (student.className !== paper.className) return NextResponse.json({ error: "Student is not enrolled in this paper's class" }, { status: 400 });
     if (student.application.sessionId !== paper.exam.sessionId) return NextResponse.json({ error: "Student is not enrolled in this examination's academic session" }, { status: 400 });
+    if (await hasReportCardRelease(student.id, student.application.sessionId)) return NextResponse.json({ error: "This student's official report card has been released and the result is immutable." }, { status: 409 });
 
     const maxMarks = Number(paper.maxMarks);
     let configured = null;
