@@ -9,6 +9,7 @@
     "lint": "next lint",
     "test:report-card": "node scripts/verify-aghaaz-report-card-rules.mjs",
     "test:aghaaz-config": "node scripts/verify-aghaaz-class-ib-config.mjs",
+    "test:term-subjects": "node scripts/verify-term-subject-isolation.mjs",
     "db:generate": "prisma generate",
     "db:validate": "prisma validate",
     "db:migrate": "prisma migrate dev",
