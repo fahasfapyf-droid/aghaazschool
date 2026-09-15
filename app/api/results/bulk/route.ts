@@ -42,6 +42,7 @@ export async function POST(req: NextRequest) {
     const body = bulkSchema.parse(await req.json());
     const paper = await prisma.examPaper.findUnique({ where: { id: body.paperId }, include: { exam: true } });
     if (!paper) return NextResponse.json({ error: "Exam paper not found" }, { status: 404 });
+    if (paper.exam.status === "PUBLISHED") return NextResponse.json({ error: "This examination is published and its results are locked. An administrator must unpublish it before corrections can be made." }, { status: 409 });
 
     const studentIds = [...new Set(body.entries.map(entry => entry.studentId))];
     if (studentIds.length !== body.entries.length) return NextResponse.json({ error: "Each student may appear only once in a bulk submission" }, { status: 400 });
