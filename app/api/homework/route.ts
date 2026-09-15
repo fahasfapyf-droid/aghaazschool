@@ -1,6 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { getCurrentUser, roleAllowed } from "@/lib/auth";
+import type { UserRole } from "@prisma/client";
+
+const HOMEWORK_ROLES: UserRole[] = ["SUPER_ADMIN", "ADMIN", "TEACHER"];
+
+async function authorized() {
+  const user = await getCurrentUser();
+  if (!user) return { response: NextResponse.json({ error: "Authentication required." }, { status: 401 }) };
+  if (!roleAllowed(user.role, HOMEWORK_ROLES)) return { response: NextResponse.json({ error: "You do not have permission to manage homework." }, { status: 403 }) };
+  return { user };
+}
 
 const homeworkSchema = z.object({
   title: z.string().trim().min(2).max(160),
@@ -15,21 +26,29 @@ const homeworkSchema = z.object({
 });
 
 export async function GET(request: NextRequest) {
-  const params = new URL(request.url).searchParams;
-  const className = params.get("class")?.trim();
-  const status = params.get("status")?.trim();
-  const items = await prisma.homework.findMany({
-    where: {
-      ...(className ? { className: { equals: className, mode: "insensitive" } } : {}),
-      ...(status ? { status: status as never } : {}),
-    },
-    include: { _count: { select: { submissions: true } } },
-    orderBy: [{ dueDate: "asc" }, { createdAt: "desc" }],
-  });
-  return NextResponse.json(items);
+  const auth = await authorized();
+  if (auth.response) return auth.response;
+  try {
+    const params = new URL(request.url).searchParams;
+    const className = params.get("class")?.trim();
+    const status = params.get("status")?.trim();
+    const items = await prisma.homework.findMany({
+      where: {
+        ...(className ? { className: { equals: className, mode: "insensitive" } } : {}),
+        ...(status ? { status: status as never } : {}),
+      },
+      include: { _count: { select: { submissions: true } } },
+      orderBy: [{ dueDate: "asc" }, { createdAt: "desc" }],
+    });
+    return NextResponse.json(items);
+  } catch {
+    return NextResponse.json({ error: "Unable to load homework." }, { status: 500 });
+  }
 }
 
 export async function POST(request: NextRequest) {
+  const auth = await authorized();
+  if (auth.response) return auth.response;
   try {
     const body = homeworkSchema.parse(await request.json());
     const assignedDate = body.assignedDate ?? new Date();
@@ -43,6 +62,8 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
+  const auth = await authorized();
+  if (auth.response) return auth.response;
   try {
     const id = new URL(request.url).searchParams.get("id");
     if (!id) return NextResponse.json({ error: "Homework id is required." }, { status: 400 });
@@ -56,8 +77,17 @@ export async function PATCH(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
+  const auth = await authorized();
+  if (auth.response) return auth.response;
   const id = new URL(request.url).searchParams.get("id");
   if (!id) return NextResponse.json({ error: "Homework id is required." }, { status: 400 });
-  await prisma.homework.delete({ where: { id } });
-  return NextResponse.json({ success: true });
+  try {
+    const existing = await prisma.homework.findUnique({ where: { id }, include: { _count: { select: { submissions: true } } } });
+    if (!existing) return NextResponse.json({ error: "Homework not found." }, { status: 404 });
+    if (existing._count.submissions > 0) return NextResponse.json({ error: "Homework with submissions cannot be deleted. Close it instead." }, { status: 409 });
+    await prisma.homework.delete({ where: { id } });
+    return NextResponse.json({ success: true });
+  } catch {
+    return NextResponse.json({ error: "Unable to delete homework." }, { status: 500 });
+  }
 }
