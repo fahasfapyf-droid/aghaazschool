@@ -1,0 +1,1 @@
+See app/api/report-card-config/route.ts and the audited workbook reference. No database seeding is performed automatically.
