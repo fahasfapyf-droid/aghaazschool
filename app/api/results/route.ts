@@ -3,19 +3,8 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 
-const componentSchema = z.object({
-  name: z.string().trim().min(1),
-  maxMarks: z.coerce.number().positive(),
-  marks: z.coerce.number().min(0)
-});
-
-const resultSchema = z.object({
-  paperId: z.string(),
-  studentId: z.string(),
-  marks: z.coerce.number().min(0).optional(),
-  components: z.array(componentSchema).optional(),
-  remarks: z.string().trim().max(2000).optional()
-});
+const componentSchema = z.object({ name: z.string().trim().min(1), maxMarks: z.coerce.number().positive(), marks: z.coerce.number().min(0) });
+const resultSchema = z.object({ paperId: z.string(), studentId: z.string(), marks: z.coerce.number().min(0).optional(), components: z.array(componentSchema).optional(), remarks: z.string().trim().max(2000).optional() });
 
 function grade(marks: number, max: number) {
   const percentage = max ? marks / max * 100 : 0;
@@ -29,14 +18,11 @@ function grade(marks: number, max: number) {
   return "TRY_AGAIN";
 }
 
-function canEnterResults(role?: string) {
-  return role === "SUPER_ADMIN" || role === "ADMIN" || role === "TEACHER";
-}
+function canEnterResults(role?: string) { return role === "SUPER_ADMIN" || role === "ADMIN" || role === "TEACHER"; }
 
 export async function GET(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
   const studentId = req.nextUrl.searchParams.get("studentId") || undefined;
   const examId = req.nextUrl.searchParams.get("examId") || undefined;
   const results = await prisma.result.findMany({
@@ -56,52 +42,46 @@ export async function POST(req: NextRequest) {
     const body = resultSchema.parse(await req.json());
     const paper = await prisma.examPaper.findUnique({ where: { id: body.paperId }, include: { exam: true } });
     if (!paper) return NextResponse.json({ error: "Exam paper not found" }, { status: 404 });
-
     const student = await prisma.enrollment.findUnique({ where: { id: body.studentId } });
     if (!student) return NextResponse.json({ error: "Student not found" }, { status: 404 });
-    if (student.className !== paper.className) {
-      return NextResponse.json({ error: "Student is not enrolled in this paper's class" }, { status: 400 });
-    }
+    if (student.className !== paper.className) return NextResponse.json({ error: "Student is not enrolled in this paper's class" }, { status: 400 });
 
     const maxMarks = Number(paper.maxMarks);
+    const configured = paper.exam.term ? await prisma.reportCardSubject.findFirst({
+      where: { sessionId: paper.exam.sessionId, className: paper.className, term: paper.exam.term, subject: paper.subject, active: true },
+      include: { components: { orderBy: { displayOrder: "asc" } } }
+    }) : null;
+
+    if (configured && Math.abs(Number(configured.maxMarks) - maxMarks) > 0.01) {
+      return NextResponse.json({ error: `Exam paper maximum (${maxMarks}) does not match configured maximum (${configured.maxMarks})` }, { status: 400 });
+    }
+
+    const configuredComponents = configured?.components ?? [];
+    if (configuredComponents.length && !body.components?.length) return NextResponse.json({ error: "This subject requires assessment component marks" }, { status: 400 });
+
     let marks = body.marks ?? 0;
     const components = body.components;
-
     if (components?.length) {
       const componentMax = components.reduce((sum, c) => sum + c.maxMarks, 0);
       const componentMarks = components.reduce((sum, c) => sum + c.marks, 0);
-      if (Math.abs(componentMax - maxMarks) > 0.01) {
-        return NextResponse.json({ error: `Component maximum must total ${maxMarks}` }, { status: 400 });
-      }
-      if (components.some(c => c.marks > c.maxMarks)) {
-        return NextResponse.json({ error: "Component marks cannot exceed their maximum" }, { status: 400 });
+      if (Math.abs(componentMax - maxMarks) > 0.01) return NextResponse.json({ error: `Component maximum must total ${maxMarks}` }, { status: 400 });
+      if (components.some(c => c.marks > c.maxMarks)) return NextResponse.json({ error: "Component marks cannot exceed their maximum" }, { status: 400 });
+      if (configuredComponents.length) {
+        if (components.length !== configuredComponents.length) return NextResponse.json({ error: "Submitted assessment components do not match the configured subject" }, { status: 400 });
+        const configuredByName = new Map(configuredComponents.map(c => [c.name.toLowerCase(), Number(c.maxMarks)]));
+        for (const component of components) {
+          const configuredMax = configuredByName.get(component.name.toLowerCase());
+          if (configuredMax === undefined || Math.abs(configuredMax - component.maxMarks) > 0.01) return NextResponse.json({ error: `Assessment component '${component.name}' does not match the configured subject` }, { status: 400 });
+        }
       }
       marks = componentMarks;
     }
-
-    if (marks > maxMarks) {
-      return NextResponse.json({ error: `Marks cannot exceed ${maxMarks}` }, { status: 400 });
-    }
+    if (marks > maxMarks) return NextResponse.json({ error: `Marks cannot exceed ${maxMarks}` }, { status: 400 });
 
     const result = await prisma.result.upsert({
       where: { paperId_studentId: { paperId: body.paperId, studentId: body.studentId } },
-      create: {
-        paperId: body.paperId,
-        studentId: body.studentId,
-        marks,
-        grade: grade(marks, maxMarks),
-        remarks: body.remarks,
-        components: components?.length ? { create: components.map(c => ({ name: c.name, maxMarks: c.maxMarks, marks: c.marks })) } : undefined
-      },
-      update: {
-        marks,
-        grade: grade(marks, maxMarks),
-        remarks: body.remarks,
-        components: components ? {
-          deleteMany: {},
-          create: components.map(c => ({ name: c.name, maxMarks: c.maxMarks, marks: c.marks }))
-        } : undefined
-      },
+      create: { paperId: body.paperId, studentId: body.studentId, marks, grade: grade(marks, maxMarks), remarks: body.remarks, components: components?.length ? { create: components.map(c => ({ name: c.name, maxMarks: c.maxMarks, marks: c.marks })) } : undefined },
+      update: { marks, grade: grade(marks, maxMarks), remarks: body.remarks, components: components ? { deleteMany: {}, create: components.map(c => ({ name: c.name, maxMarks: c.maxMarks, marks: c.marks })) } : undefined },
       include: { components: true, paper: true }
     });
     return NextResponse.json(result);
