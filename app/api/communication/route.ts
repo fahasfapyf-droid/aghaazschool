@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, roleAllowed } from "@/lib/auth";
+import { requestAuditContext, writeAuditLog } from "@/lib/audit";
 import type { UserRole } from "@prisma/client";
 
 const COMMUNICATION_ROLES: UserRole[] = ["SUPER_ADMIN", "ADMIN", "RECEPTIONIST"];
@@ -25,11 +26,13 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const auth = await authorized();
   if (auth.response) return auth.response;
+  const context = requestAuditContext(request);
   try {
     const body = await request.json();
     if (!body.title?.trim() || !body.message?.trim()) return NextResponse.json({ error: "Title and message are required." }, { status: 400 });
     const status = body.status === "DRAFT" ? "DRAFT" : "PUBLISHED";
     const notice = await prisma.communicationNotice.create({ data: { title: body.title.trim(), message: body.message.trim(), audience: body.audience?.trim() || "ALL", status, publishedAt: status === "DRAFT" ? null : new Date() } });
+    await writeAuditLog({ userId: auth.user.id, action: status === "PUBLISHED" ? "COMMUNICATION_PUBLISHED" : "COMMUNICATION_DRAFT_CREATED", entityType: "CommunicationNotice", entityId: notice.id, metadata: { audience: notice.audience, status: notice.status }, context });
     return NextResponse.json(notice, { status: 201 });
   } catch { return NextResponse.json({ error: "Unable to create notice." }, { status: 500 }); }
 }
