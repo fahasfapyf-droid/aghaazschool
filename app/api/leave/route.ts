@@ -1,15 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getCurrentUser, roleAllowed } from "@/lib/auth";
+import type { UserRole } from "@prisma/client";
+
+const LEAVE_ROLES: UserRole[] = ["SUPER_ADMIN", "ADMIN", "TEACHER", "RECEPTIONIST"];
+
+async function authorized() {
+  const user = await getCurrentUser();
+  if (!user) return { response: NextResponse.json({ error: "Authentication required." }, { status: 401 }) };
+  if (!roleAllowed(user.role, LEAVE_ROLES)) return { response: NextResponse.json({ error: "You do not have permission to manage leave requests." }, { status: 403 }) };
+  return { user };
+}
 
 export async function GET(request: NextRequest) {
+  const auth = await authorized();
+  if (auth.response) return auth.response;
   try {
     const status = request.nextUrl.searchParams.get("status") || undefined;
-    const rows = await prisma.leaveRequest.findMany({
-      where: status ? { status } : undefined,
-      include: { student: { include: { application: true } } },
-      orderBy: { createdAt: "desc" },
-      take: 200,
-    });
+    const rows = await prisma.leaveRequest.findMany({ where: status ? { status } : undefined, include: { student: { include: { application: true } } }, orderBy: { createdAt: "desc" }, take: 200 });
     return NextResponse.json(rows);
   } catch (error) {
     console.error(error);
@@ -18,22 +26,17 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const auth = await authorized();
+  if (auth.response) return auth.response;
   try {
     const body = await request.json();
-    if (!body.studentId || !body.startDate || !body.endDate || !body.reason?.trim()) {
-      return NextResponse.json({ error: "Student, dates and reason are required." }, { status: 400 });
-    }
+    if (!body.studentId || !body.startDate || !body.endDate || !body.reason?.trim()) return NextResponse.json({ error: "Student, dates and reason are required." }, { status: 400 });
     const startDate = new Date(body.startDate);
     const endDate = new Date(body.endDate);
-    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime()) || endDate < startDate) {
-      return NextResponse.json({ error: "End date must be on or after the start date." }, { status: 400 });
-    }
+    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime()) || endDate < startDate) return NextResponse.json({ error: "End date must be on or after the start date." }, { status: 400 });
     const student = await prisma.enrollment.findUnique({ where: { id: body.studentId } });
     if (!student) return NextResponse.json({ error: "Student enrollment not found." }, { status: 404 });
-
-    const row = await prisma.leaveRequest.create({
-      data: { studentId: body.studentId, startDate, endDate, reason: body.reason.trim(), status: "PENDING" },
-    });
+    const row = await prisma.leaveRequest.create({ data: { studentId: body.studentId, startDate, endDate, reason: body.reason.trim(), status: "PENDING" } });
     return NextResponse.json(row, { status: 201 });
   } catch (error) {
     console.error(error);
@@ -42,24 +45,16 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
+  const auth = await authorized();
+  if (auth.response) return auth.response;
   try {
     const body = await request.json();
     const status = body.status === "APPROVED" || body.status === "REJECTED" ? body.status : null;
     if (!body.id || !status) return NextResponse.json({ error: "Request id and a valid review status are required." }, { status: 400 });
-
     const existing = await prisma.leaveRequest.findUnique({ where: { id: body.id } });
     if (!existing) return NextResponse.json({ error: "Leave request not found." }, { status: 404 });
     if (existing.status !== "PENDING") return NextResponse.json({ error: "Only pending requests can be reviewed." }, { status: 409 });
-
-    const row = await prisma.leaveRequest.update({
-      where: { id: body.id },
-      data: {
-        status,
-        reviewedBy: typeof body.reviewedBy === "string" ? body.reviewedBy.trim() || null : null,
-        reviewedAt: new Date(),
-        reviewRemarks: typeof body.reviewRemarks === "string" ? body.reviewRemarks.trim() || null : null,
-      },
-    });
+    const row = await prisma.leaveRequest.update({ where: { id: body.id }, data: { status, reviewedBy: auth.user.id, reviewedAt: new Date(), reviewRemarks: typeof body.reviewRemarks === "string" ? body.reviewRemarks.trim() || null : null } });
     return NextResponse.json(row);
   } catch (error) {
     console.error(error);
