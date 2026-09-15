@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
 
+// Audited Aghaaz Class IB 2025-26 maxima.
+// FIRST: English, Science, Social Studies, Mathematics, Urdu, Islamiat.
+// SECOND/THIRD add English Reading and Urdu Reading while Urdu and Islamiat
+// use 50 marks, keeping each term at 600.
 const terms = [
   { name: "FIRST", subjects: 6, maxMarks: [100, 100, 100, 100, 100, 100] },
-  { name: "SECOND", subjects: 8, maxMarks: [100, 100, 100, 50, 50, 100, 100, 100] },
-  { name: "THIRD", subjects: 8, maxMarks: [100, 100, 100, 50, 50, 100, 100, 100] },
+  { name: "SECOND", subjects: 8, maxMarks: [100, 100, 100, 50, 50, 100, 50, 50] },
+  { name: "THIRD", subjects: 8, maxMarks: [100, 100, 100, 50, 50, 100, 50, 50] },
 ];
 
 for (const term of terms) {
