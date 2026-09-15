@@ -7,88 +7,20 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum AdmissionStatus {
-  NEW
-  UNDER_REVIEW
-  DOCUMENTS_PENDING
-  ASSESSMENT_SCHEDULED
-  ASSESSMENT_COMPLETED
-  APPROVED
-  PAYMENT_PENDING
-  ENROLLED
-  REJECTED
-  WAITLISTED
-  WITHDRAWN
-  CANCELLED
-}
-
-enum DocumentStatus {
-  PENDING
-  VERIFIED
-  REJECTED
-}
-
-enum AssessmentType {
-  TEST
-  INTERVIEW
-}
-
-enum DecisionType {
-  APPROVED
-  REJECTED
-  WAITLISTED
-}
-
-enum PaymentStatus {
-  PENDING
-  PAID
-  WAIVED
-  REFUNDED
-}
-
-enum Gender {
-  MALE
-  FEMALE
-  OTHER
-}
-
-enum AttendanceStatus {
-  PRESENT
-  ABSENT
-  LATE
-  EXCUSED
-}
-
-enum ExamType {
-  MIDTERM
-  FINAL
-  QUIZ
-  MONTHLY
-  OTHER
-}
-
-enum ExamStatus {
-  DRAFT
-  SCHEDULED
-  PUBLISHED
-}
-
-enum ResultGrade {
-  A_PLUS
-  A
-  B
-  C
-  D
-  F
-}
-
-enum UserRole {
-  SUPER_ADMIN
-  ADMIN
-  TEACHER
-  ACCOUNTANT
-  RECEPTIONIST
-}
+enum AdmissionStatus { NEW UNDER_REVIEW DOCUMENTS_PENDING ASSESSMENT_SCHEDULED ASSESSMENT_COMPLETED APPROVED PAYMENT_PENDING ENROLLED REJECTED WAITLISTED WITHDRAWN CANCELLED }
+enum DocumentStatus { PENDING VERIFIED REJECTED }
+enum AssessmentType { TEST INTERVIEW }
+enum DecisionType { APPROVED REJECTED WAITLISTED }
+enum PaymentStatus { PENDING PAID WAIVED REFUNDED }
+enum Gender { MALE FEMALE OTHER }
+enum AttendanceStatus { PRESENT ABSENT LATE EXCUSED }
+enum ExamType { MIDTERM FINAL QUIZ MONTHLY OTHER }
+enum ExamStatus { DRAFT SCHEDULED PUBLISHED }
+enum ResultGrade { A_PLUS A B C D F }
+enum UserRole { SUPER_ADMIN ADMIN TEACHER ACCOUNTANT RECEPTIONIST }
+enum DayOfWeek { MONDAY TUESDAY WEDNESDAY THURSDAY FRIDAY SATURDAY SUNDAY }
+enum HomeworkStatus { DRAFT PUBLISHED CLOSED }
+enum SubmissionStatus { NOT_SUBMITTED SUBMITTED REVIEWED }
 
 model AcademicSession {
   id           String        @id @default(cuid())
@@ -195,19 +127,20 @@ model AdmissionPayment {
 }
 
 model Enrollment {
-  id              String         @id @default(cuid())
-  applicationId   String         @unique
-  studentId       String         @unique
-  admissionNumber String         @unique
-  className       String
-  section         String?
-  enrolledAt      DateTime       @default(now())
-  status          String         @default("active")
-  application     Application    @relation(fields: [applicationId], references: [id])
-  attendance      Attendance[]
-  feeInvoices     FeeInvoice[]
-  results         Result[]
-  leaveRequests   LeaveRequest[]
+  id                   String                 @id @default(cuid())
+  applicationId        String                 @unique
+  studentId            String                 @unique
+  admissionNumber      String                 @unique
+  className            String
+  section              String?
+  enrolledAt           DateTime               @default(now())
+  status               String                 @default("active")
+  application          Application            @relation(fields: [applicationId], references: [id])
+  attendance           Attendance[]
+  feeInvoices          FeeInvoice[]
+  results              Result[]
+  leaveRequests        LeaveRequest[]
+  homeworkSubmissions  HomeworkSubmission[]
 }
 
 model Attendance {
@@ -318,6 +251,55 @@ model LeaveRequest {
   student       Enrollment @relation(fields: [studentId], references: [id], onDelete: Cascade)
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
+  @@index([studentId, status])
+}
+
+model TimetableEntry {
+  id         String      @id @default(cuid())
+  dayOfWeek  DayOfWeek
+  className  String
+  section    String?
+  subject    String
+  teacher    String
+  room       String?
+  startTime  String
+  endTime    String
+  period     Int
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  @@index([className, section, dayOfWeek, period])
+}
+
+model Homework {
+  id           String                 @id @default(cuid())
+  title        String
+  description  String
+  className    String
+  section      String?
+  subject      String
+  teacher      String
+  assignedDate DateTime               @default(now())
+  dueDate      DateTime
+  status       HomeworkStatus         @default(PUBLISHED)
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+  submissions  HomeworkSubmission[]
+  @@index([className, section, dueDate])
+  @@index([status, dueDate])
+}
+
+model HomeworkSubmission {
+  id          String           @id @default(cuid())
+  homeworkId  String
+  studentId   String
+  status      SubmissionStatus @default(NOT_SUBMITTED)
+  submittedAt DateTime?
+  feedback    String?
+  homework    Homework         @relation(fields: [homeworkId], references: [id], onDelete: Cascade)
+  student     Enrollment       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  @@unique([homeworkId, studentId])
   @@index([studentId, status])
 }
 
