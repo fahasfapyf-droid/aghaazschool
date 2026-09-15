@@ -1,12 +1,22 @@
+import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { getCurrentUser } from "@/lib/auth";
+import { requestAuditContext, writeAuditLog } from "@/lib/audit";
 import { z } from "zod";
 
 const invoiceSchema = z.object({ studentId: z.string().min(1), feeType: z.string().trim().min(1).max(100), amount: z.coerce.number().positive(), discount: z.coerce.number().min(0).default(0), dueDate: z.string().min(1) }).refine(x => x.discount <= x.amount, { message: "Discount cannot exceed the invoice amount.", path: ["discount"] });
 const paymentSchema = z.object({ invoiceId: z.string().min(1), amount: z.coerce.number().positive(), paymentMethod: z.string().trim().max(60).optional() });
 
+function isSerializationConflict(error: unknown) {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034";
+}
+
 export async function GET(request: NextRequest) {
   try {
+    const user = await getCurrentUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const status = request.nextUrl.searchParams.get("status") || undefined;
     const invoices = await prisma.feeInvoice.findMany({ where: status ? { status } : undefined, include: { student: { include: { application: true } }, payments: true }, orderBy: { dueDate: "asc" }, take: 500 });
     return NextResponse.json(invoices);
@@ -15,24 +25,60 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const user = await getCurrentUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const body = await request.json();
+    const context = requestAuditContext(request);
+
     if (body.action === "payment") {
       const parsed = paymentSchema.safeParse(body); if (!parsed.success) return NextResponse.json({ error: "Invalid payment", details: parsed.error.flatten() }, { status: 400 });
-      const invoice = await prisma.feeInvoice.findUnique({ where: { id: parsed.data.invoiceId }, include: { payments: true } });
-      if (!invoice) return NextResponse.json({ error: "Invoice not found" }, { status: 404 });
-      const alreadyPaid = invoice.payments.reduce((sum, p) => sum + Number(p.amount), 0);
-      const remaining = Math.max(0, Number(invoice.netAmount) - alreadyPaid);
-      if (parsed.data.amount > remaining) return NextResponse.json({ error: `Payment exceeds the outstanding balance of PKR ${remaining.toLocaleString()}.` }, { status: 400 });
-      const paid = alreadyPaid + parsed.data.amount;
-      const status = paid >= Number(invoice.netAmount) ? "PAID" : "PARTIAL";
-      const payment = await prisma.$transaction(async tx => { const p = await tx.feePayment.create({ data: { invoiceId: invoice.id, receiptNumber: `RCP-${Date.now()}`, amount: parsed.data.amount, paymentMethod: parsed.data.paymentMethod } }); await tx.feeInvoice.update({ where: { id: invoice.id }, data: { status } }); return p; });
+
+      let payment;
+      let remaining = 0;
+      let lastError: unknown;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          const result = await prisma.$transaction(async tx => {
+            const invoice = await tx.feeInvoice.findUnique({ where: { id: parsed.data.invoiceId }, include: { payments: true } });
+            if (!invoice) throw new Error("INVOICE_NOT_FOUND");
+            const alreadyPaid = invoice.payments.reduce((sum, p) => sum + Number(p.amount), 0);
+            const outstanding = Math.max(0, Number(invoice.netAmount) - alreadyPaid);
+            if (parsed.data.amount > outstanding) throw new Error(`PAYMENT_EXCEEDS_BALANCE:${outstanding}`);
+            const paid = alreadyPaid + parsed.data.amount;
+            const status = paid >= Number(invoice.netAmount) ? "PAID" : "PARTIAL";
+            const created = await tx.feePayment.create({ data: { invoiceId: invoice.id, receiptNumber: `RCP-${randomUUID()}`, amount: parsed.data.amount, paymentMethod: parsed.data.paymentMethod } });
+            await tx.feeInvoice.update({ where: { id: invoice.id }, data: { status } });
+            return { payment: created, outstanding };
+          }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+          payment = result.payment;
+          remaining = result.outstanding;
+          break;
+        } catch (error) {
+          lastError = error;
+          if (error instanceof Error && error.message === "INVOICE_NOT_FOUND") return NextResponse.json({ error: "Invoice not found" }, { status: 404 });
+          if (error instanceof Error && error.message.startsWith("PAYMENT_EXCEEDS_BALANCE:")) {
+            const outstanding = Number(error.message.split(":")[1]);
+            return NextResponse.json({ error: `Payment exceeds the outstanding balance of PKR ${outstanding.toLocaleString()}.` }, { status: 400 });
+          }
+          if (!isSerializationConflict(error) || attempt === 2) break;
+        }
+      }
+
+      if (!payment) {
+        console.error(lastError);
+        return NextResponse.json({ error: "Unable to record payment safely. Please retry." }, { status: 409 });
+      }
+
+      await writeAuditLog({ userId: user.id, action: "FEE_PAYMENT_CREATED", entityType: "FeePayment", entityId: payment.id, metadata: { invoiceId: parsed.data.invoiceId, amount: parsed.data.amount, paymentMethod: parsed.data.paymentMethod ?? null, remainingAfterPayment: remaining }, context });
       return NextResponse.json(payment, { status: 201 });
     }
+
     const parsed = invoiceSchema.safeParse(body); if (!parsed.success) return NextResponse.json({ error: "Invalid invoice", details: parsed.error.flatten() }, { status: 400 });
     const dueDate = new Date(parsed.data.dueDate); if (Number.isNaN(dueDate.getTime())) return NextResponse.json({ error: "Invalid due date." }, { status: 400 });
     const student = await prisma.enrollment.findUnique({ where: { id: parsed.data.studentId } }); if (!student) return NextResponse.json({ error: "Student enrollment not found." }, { status: 404 });
     const netAmount = parsed.data.amount - parsed.data.discount;
-    const invoice = await prisma.feeInvoice.create({ data: { invoiceNumber: `INV-${new Date().getFullYear()}-${Date.now().toString().slice(-6)}`, studentId: parsed.data.studentId, feeType: parsed.data.feeType, amount: parsed.data.amount, discount: parsed.data.discount, netAmount, dueDate } });
+    const invoice = await prisma.feeInvoice.create({ data: { invoiceNumber: `INV-${new Date().getFullYear()}-${randomUUID()}`, studentId: parsed.data.studentId, feeType: parsed.data.feeType, amount: parsed.data.amount, discount: parsed.data.discount, netAmount, dueDate } });
+    await writeAuditLog({ userId: user.id, action: "FEE_INVOICE_CREATED", entityType: "FeeInvoice", entityId: invoice.id, metadata: { studentId: parsed.data.studentId, feeType: parsed.data.feeType, amount: parsed.data.amount, discount: parsed.data.discount, netAmount, dueDate: dueDate.toISOString() }, context });
     return NextResponse.json(invoice, { status: 201 });
   } catch (error) { console.error(error); return NextResponse.json({ error: "Unable to save fee record" }, { status: 500 }); }
 }
