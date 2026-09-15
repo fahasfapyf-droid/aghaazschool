@@ -3,6 +3,13 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 
 const terms = ["FIRST", "SECOND", "THIRD"] as const;
+type AcademicTerm = (typeof terms)[number];
+
+type NormalizedComponent = {
+  name: string;
+  maxMarks: number;
+  displayOrder: number;
+};
 
 function canManage(role?: string) {
   return role === "SUPER_ADMIN" || role === "ADMIN";
@@ -19,7 +26,7 @@ export async function GET(request: NextRequest) {
   const term = searchParams.get("term");
 
   if (!sessionId) return NextResponse.json({ error: "sessionId is required" }, { status: 400 });
-  if (term && !terms.includes(term as (typeof terms)[number])) {
+  if (term && !terms.includes(term as AcademicTerm)) {
     return NextResponse.json({ error: "Invalid academic term" }, { status: 400 });
   }
 
@@ -28,7 +35,7 @@ export async function GET(request: NextRequest) {
       sessionId,
       ...(className ? { className } : {}),
       ...(section ? { section } : {}),
-      ...(term ? { term: term as (typeof terms)[number] } : {}),
+      ...(term ? { term: term as AcademicTerm } : {}),
     },
     include: { components: { orderBy: { displayOrder: "asc" } } },
     orderBy: [{ term: "asc" }, { displayOrder: "asc" }, { subject: "asc" }],
@@ -55,14 +62,14 @@ export async function POST(request: NextRequest) {
   const active = body.active === undefined ? true : Boolean(body.active);
   const components = Array.isArray(body.components) ? body.components : [];
 
-  if (!sessionId || !className || !subject || !terms.includes(term as (typeof terms)[number])) {
+  if (!sessionId || !className || !subject || !terms.includes(term as AcademicTerm)) {
     return NextResponse.json({ error: "sessionId, className, term and subject are required" }, { status: 400 });
   }
   if (!Number.isFinite(maxMarks) || maxMarks <= 0) {
     return NextResponse.json({ error: "maxMarks must be greater than zero" }, { status: 400 });
   }
 
-  const normalizedComponents = components.map((component: unknown, index: number) => {
+  const normalizedComponents: NormalizedComponent[] = components.map((component: unknown, index: number) => {
     const item = component as Record<string, unknown>;
     return {
       name: typeof item.name === "string" ? item.name.trim() : "",
@@ -71,17 +78,17 @@ export async function POST(request: NextRequest) {
     };
   });
 
-  if (normalizedComponents.some((component) => !component.name || !Number.isFinite(component.maxMarks) || component.maxMarks <= 0)) {
+  if (normalizedComponents.some((component: NormalizedComponent) => !component.name || !Number.isFinite(component.maxMarks) || component.maxMarks <= 0)) {
     return NextResponse.json({ error: "Every assessment component needs a name and positive max marks" }, { status: 400 });
   }
 
-  const componentTotal = normalizedComponents.reduce((sum, component) => sum + component.maxMarks, 0);
+  const componentTotal = normalizedComponents.reduce((sum: number, component: NormalizedComponent) => sum + component.maxMarks, 0);
   if (normalizedComponents.length && Math.abs(componentTotal - maxMarks) > 0.001) {
     return NextResponse.json({ error: "Assessment component maximums must equal the subject maximum marks" }, { status: 400 });
   }
 
   const existing = await prisma.reportCardSubject.findFirst({
-    where: { sessionId, className, section, term: term as (typeof terms)[number], subject },
+    where: { sessionId, className, section, term: term as AcademicTerm, subject },
     select: { id: true },
   });
 
@@ -104,7 +111,7 @@ export async function POST(request: NextRequest) {
           sessionId,
           className,
           section,
-          term: term as (typeof terms)[number],
+          term: term as AcademicTerm,
           subject,
           maxMarks,
           displayOrder,
