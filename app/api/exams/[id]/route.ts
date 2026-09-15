@@ -20,30 +20,35 @@ function grade(marks: number, maxMarks: number) {
   return "TRY_AGAIN";
 }
 
+async function getPaperReadiness(paper: { id: string; className: string; subject: string; maxMarks: unknown; results: { id: string; studentId: string; marks: unknown; grade: string | null; components: { maxMarks: unknown; marks: unknown }[] }[] }, sessionId: string) {
+  const students = await prisma.enrollment.findMany({ where: { className: paper.className, status: "active", application: { sessionId } }, select: { id: true } });
+  const expectedIds = new Set(students.map(student => student.id));
+  const resultByStudent = new Map(paper.results.filter(result => expectedIds.has(result.studentId)).map(result => [result.studentId, result]));
+  const maxMarks = Number(paper.maxMarks);
+  let invalid = 0;
+  for (const result of resultByStudent.values()) {
+    const marks = Number(result.marks);
+    let bad = !Number.isFinite(marks) || marks < 0 || marks > maxMarks || result.grade !== grade(marks, maxMarks);
+    if (result.components.length) {
+      const componentMax = result.components.reduce((sum, component) => sum + Number(component.maxMarks), 0);
+      const componentMarks = result.components.reduce((sum, component) => sum + Number(component.marks), 0);
+      bad = bad || Math.abs(componentMax - maxMarks) > 0.01 || Math.abs(componentMarks - marks) > 0.01 || result.components.some(component => Number(component.marks) < 0 || Number(component.marks) > Number(component.maxMarks));
+    }
+    if (bad) invalid += 1;
+  }
+  const entered = resultByStudent.size;
+  return { paperId: paper.id, subject: paper.subject, className: paper.className, expected: students.length, entered, missing: Math.max(students.length - entered, 0), invalid, ready: students.length > 0 && entered === students.length && invalid === 0 };
+}
+
 async function validatePublication(examId: string, sessionId: string) {
   const papers = await prisma.examPaper.findMany({ where: { examId }, include: { results: { include: { components: true } } }, orderBy: [{ className: "asc" }, { subject: "asc" }] });
   if (!papers.length) return ["An examination must have at least one paper before it can be published"];
   const errors: string[] = [];
   for (const paper of papers) {
-    const students = await prisma.enrollment.findMany({ where: { className: paper.className, status: "active", application: { sessionId } }, select: { id: true } });
-    if (!students.length) { errors.push(`${paper.subject} (${paper.className}): no active students are enrolled for this examination session`); continue; }
-    const expectedIds = new Set(students.map(student => student.id));
-    const resultByStudent = new Map(paper.results.filter(result => expectedIds.has(result.studentId)).map(result => [result.studentId, result]));
-    const missing = students.filter(student => !resultByStudent.has(student.id)).length;
-    if (missing) errors.push(`${paper.subject} (${paper.className}): ${missing} active student result${missing === 1 ? "" : "s"} missing`);
-    const maxMarks = Number(paper.maxMarks);
-    for (const result of resultByStudent.values()) {
-      const marks = Number(result.marks);
-      if (!Number.isFinite(marks) || marks < 0 || marks > maxMarks) { errors.push(`${paper.subject} (${paper.className}): invalid marks for result ${result.id}`); continue; }
-      if (result.components.length) {
-        const componentMax = result.components.reduce((sum, component) => sum + Number(component.maxMarks), 0);
-        const componentMarks = result.components.reduce((sum, component) => sum + Number(component.marks), 0);
-        if (Math.abs(componentMax - maxMarks) > 0.01) errors.push(`${paper.subject} (${paper.className}): component maximums do not total ${maxMarks}`);
-        if (Math.abs(componentMarks - marks) > 0.01) errors.push(`${paper.subject} (${paper.className}): component marks do not equal the saved subject mark`);
-        if (result.components.some(component => Number(component.marks) < 0 || Number(component.marks) > Number(component.maxMarks))) errors.push(`${paper.subject} (${paper.className}): a component mark exceeds its maximum`);
-      }
-      if (result.grade !== grade(marks, maxMarks)) errors.push(`${paper.subject} (${paper.className}): saved grade does not match the marks for result ${result.id}`);
-    }
+    const summary = await getPaperReadiness(paper, sessionId);
+    if (!summary.expected) { errors.push(`${paper.subject} (${paper.className}): no active students are enrolled for this examination session`); continue; }
+    if (summary.missing) errors.push(`${paper.subject} (${paper.className}): ${summary.missing} active student result${summary.missing === 1 ? "" : "s"} missing`);
+    if (summary.invalid) errors.push(`${paper.subject} (${paper.className}): ${summary.invalid} result${summary.invalid === 1 ? "" : "s"} contain invalid marks, components, or grade calculations`);
   }
   return errors;
 }
@@ -54,8 +59,9 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ id: st
   const { id } = await params;
   const exam = await prisma.exam.findUnique({ where: { id }, include: { session: true, papers: { include: { results: { include: { components: true, student: { include: { application: true } } }, orderBy: { student: { application: { studentName: "asc" } } } } } } } });
   if (!exam) return NextResponse.json({ error: "Examination not found" }, { status: 404 });
+  const paperReadiness = await Promise.all(exam.papers.map(paper => getPaperReadiness(paper, exam.sessionId)));
   const publicationErrors = exam.status === "PUBLISHED" ? [] : await validatePublication(id, exam.sessionId);
-  return NextResponse.json({ ...exam, publicationReady: publicationErrors.length === 0, publicationErrors: publicationErrors.slice(0, 20) });
+  return NextResponse.json({ ...exam, publicationReady: publicationErrors.length === 0, publicationErrors: publicationErrors.slice(0, 20), paperReadiness });
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
