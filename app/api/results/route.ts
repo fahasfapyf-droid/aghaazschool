@@ -5,7 +5,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { requestAuditContext, writeAuditLog } from "@/lib/audit";
 
 const componentSchema = z.object({ name: z.string().trim().min(1), maxMarks: z.coerce.number().positive(), marks: z.coerce.number().min(0) });
-const resultSchema = z.object({ paperId: z.string(), studentId: z.string(), marks: z.coerce.number().min(0).optional(), components: z.array(componentSchema).optional(), remarks: z.string().trim().max(2000).optional() });
+const resultSchema = z.object({ paperId: z.string(), studentId: z.string(), marks: z.coerce.number().min(0).optional(), components: z.array(componentSchema).optional(), remarks: z.string().trim().max(2000).optional() }).refine(value => value.marks !== undefined || value.components !== undefined, { message: "Marks or assessment components are required" });
 
 function grade(marks: number, max: number) {
   const percentage = max ? marks / max * 100 : 0;
@@ -43,9 +43,10 @@ export async function POST(req: NextRequest) {
     const body = resultSchema.parse(await req.json());
     const paper = await prisma.examPaper.findUnique({ where: { id: body.paperId }, include: { exam: true } });
     if (!paper) return NextResponse.json({ error: "Exam paper not found" }, { status: 404 });
-    const student = await prisma.enrollment.findUnique({ where: { id: body.studentId } });
+    const student = await prisma.enrollment.findUnique({ where: { id: body.studentId }, include: { application: { select: { sessionId: true } } } });
     if (!student) return NextResponse.json({ error: "Student not found" }, { status: 404 });
     if (student.className !== paper.className) return NextResponse.json({ error: "Student is not enrolled in this paper's class" }, { status: 400 });
+    if (student.application.sessionId !== paper.exam.sessionId) return NextResponse.json({ error: "Student is not enrolled in this examination's academic session" }, { status: 400 });
 
     const maxMarks = Number(paper.maxMarks);
     const configured = paper.exam.term ? await prisma.reportCardSubject.findFirst({
@@ -71,6 +72,8 @@ export async function POST(req: NextRequest) {
     let marks = body.marks ?? 0;
     const components = body.components;
     if (components?.length) {
+      const names = components.map(component => component.name.toLowerCase());
+      if (new Set(names).size !== names.length) return NextResponse.json({ error: "Assessment component names must be unique" }, { status: 400 });
       const componentMax = components.reduce((sum, c) => sum + c.maxMarks, 0);
       const componentMarks = components.reduce((sum, c) => sum + c.marks, 0);
       if (Math.abs(componentMax - maxMarks) > 0.01) return NextResponse.json({ error: `Component maximum must total ${maxMarks}` }, { status: 400 });
