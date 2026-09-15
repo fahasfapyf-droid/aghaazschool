@@ -11,6 +11,7 @@
     "test:aghaaz-config": "node scripts/verify-aghaaz-class-ib-config.mjs",
     "test:term-subjects": "node scripts/verify-term-subject-isolation.mjs",
     "test:exam-publishing": "node scripts/verify-exam-publishing-rules.mjs",
+    "test:report-card-release": "node scripts/verify-report-card-release-rules.mjs",
     "db:generate": "prisma generate",
     "db:validate": "prisma validate",
     "db:migrate": "prisma migrate dev",
