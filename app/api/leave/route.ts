@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, roleAllowed } from "@/lib/auth";
+import { requestAuditContext, writeAuditLog } from "@/lib/audit";
 import type { UserRole } from "@prisma/client";
 
 const LEAVE_ROLES: UserRole[] = ["SUPER_ADMIN", "ADMIN", "TEACHER", "RECEPTIONIST"];
@@ -28,6 +29,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const auth = await authorized();
   if (auth.response) return auth.response;
+  const context = requestAuditContext(request);
   try {
     const body = await request.json();
     if (!body.studentId || !body.startDate || !body.endDate || !body.reason?.trim()) return NextResponse.json({ error: "Student, dates and reason are required." }, { status: 400 });
@@ -37,6 +39,7 @@ export async function POST(request: NextRequest) {
     const student = await prisma.enrollment.findUnique({ where: { id: body.studentId } });
     if (!student) return NextResponse.json({ error: "Student enrollment not found." }, { status: 404 });
     const row = await prisma.leaveRequest.create({ data: { studentId: body.studentId, startDate, endDate, reason: body.reason.trim(), status: "PENDING" } });
+    await writeAuditLog({ userId: auth.user.id, action: "LEAVE_REQUEST_CREATED", entityType: "LeaveRequest", entityId: row.id, metadata: { studentId: row.studentId, startDate: row.startDate.toISOString(), endDate: row.endDate.toISOString() }, context });
     return NextResponse.json(row, { status: 201 });
   } catch (error) {
     console.error(error);
@@ -47,6 +50,7 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   const auth = await authorized();
   if (auth.response) return auth.response;
+  const context = requestAuditContext(request);
   try {
     const body = await request.json();
     const status = body.status === "APPROVED" || body.status === "REJECTED" ? body.status : null;
@@ -55,6 +59,7 @@ export async function PATCH(request: NextRequest) {
     if (!existing) return NextResponse.json({ error: "Leave request not found." }, { status: 404 });
     if (existing.status !== "PENDING") return NextResponse.json({ error: "Only pending requests can be reviewed." }, { status: 409 });
     const row = await prisma.leaveRequest.update({ where: { id: body.id }, data: { status, reviewedBy: auth.user.id, reviewedAt: new Date(), reviewRemarks: typeof body.reviewRemarks === "string" ? body.reviewRemarks.trim() || null : null } });
+    await writeAuditLog({ userId: auth.user.id, action: status === "APPROVED" ? "LEAVE_REQUEST_APPROVED" : "LEAVE_REQUEST_REJECTED", entityType: "LeaveRequest", entityId: row.id, metadata: { studentId: row.studentId, previousStatus: existing.status, status: row.status }, context });
     return NextResponse.json(row);
   } catch (error) {
     console.error(error);
