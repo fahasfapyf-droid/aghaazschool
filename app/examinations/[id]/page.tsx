@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 
 type Component = { name: string; maxMarks: number };
 type ResultComponent = Component & { marks: string };
-type Student = { id: string; application?: { studentName?: string }; enrollment?: { id: string; className?: string; section?: string } };
+type Student = { id: string; application?: { studentName?: string; sessionId?: string }; enrollment?: { id: string; className?: string; section?: string } };
 type Result = { id: string; studentId: string; marks: string; grade?: string; components?: ResultComponent[] };
 type Paper = { id: string; className: string; subject: string; maxMarks: string; passMarks: string; results: Result[] };
 type Exam = { id: string; name: string; status: string; term?: string | null; papers: Paper[]; session: { id: string; name: string } };
@@ -28,7 +28,8 @@ export default function ExamDetail({ params }: { params: Promise<{ id: string }>
     const s = await b.json();
     if (!a.ok) { setError(x.error || "Unable to load exam"); return; }
     setExam(x);
-    setStudents(Array.isArray(s) ? s : s.students || []);
+    const allStudents: Student[] = Array.isArray(s) ? s : s.students || [];
+    setStudents(allStudents.filter(student => student.application?.sessionId === x.session.id));
     const nextMarks: Record<string, string> = {};
     const nextComponents: ComponentValues = {};
     x.papers.forEach((p: Paper) => p.results.forEach(r => {
@@ -41,9 +42,14 @@ export default function ExamDetail({ params }: { params: Promise<{ id: string }>
       const loaded = await Promise.all(x.papers.map(async (p: Paper) => {
         const response = await fetch(`/api/report-card-config?${new URLSearchParams({ sessionId: x.session.id, className: p.className, term: x.term })}`);
         const data = await response.json();
-        return [p.id, (data.subjects || []).find((item: Config) => item.subject.toLowerCase() === p.subject.toLowerCase()) || null] as const;
+        const subjectConfigs: Config[] = data.subjects || [];
+        const matching = subjectConfigs.filter(item => item.subject.toLowerCase() === p.subject.toLowerCase());
+        const universal = matching.find(item => !item.section);
+        return [p.id, universal || matching[0] || null] as const;
       }));
       setConfigs(Object.fromEntries(loaded));
+    } else {
+      setConfigs({});
     }
   };
 
