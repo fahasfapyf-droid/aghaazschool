@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getCurrentUser } from "@/lib/auth";
 
 const terms = ["FIRST", "SECOND", "THIRD"] as const;
 type AcademicTerm = (typeof terms)[number];
