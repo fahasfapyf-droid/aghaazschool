@@ -12,6 +12,7 @@
     "test:term-subjects": "node scripts/verify-term-subject-isolation.mjs",
     "test:exam-publishing": "node scripts/verify-exam-publishing-rules.mjs",
     "test:report-card-release": "node scripts/verify-report-card-release-rules.mjs",
+    "test:student-registry-db": "node scripts/test-student-registry-db.mjs",
     "db:generate": "prisma generate",
     "db:validate": "prisma validate",
     "db:migrate": "prisma migrate dev",
