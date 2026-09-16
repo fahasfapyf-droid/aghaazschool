@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint .",
     "test:report-card": "node scripts/verify-aghaaz-report-card-rules.mjs",
     "test:aghaaz-config": "node scripts/verify-aghaaz-class-ib-config.mjs",
     "test:term-subjects": "node scripts/verify-term-subject-isolation.mjs",
@@ -30,6 +30,8 @@
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "eslint": "^9.0.0",
+    "eslint-config-next": "^15.5.0",
     "prisma": "^6.14.0",
     "typescript": "^5.9.0"
   }
