@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import {NextRequest,NextResponse} from"next/server";import{prisma}from"@/lib/prisma";import{getCurrentUser,roleAllowed}from"@/lib/auth";
 const ok=["SUPER_ADMIN","ADMIN"];
 export async function GET(){try{const rows=await prisma.$queryRawUnsafe<any[]>(`SELECT * FROM "StudentCustomFieldDefinition" ORDER BY "section","displayOrder","label"`);return NextResponse.json(rows)}catch(e){console.error(e);return NextResponse.json({error:"Unable to load student fields"},{status:500})}}
