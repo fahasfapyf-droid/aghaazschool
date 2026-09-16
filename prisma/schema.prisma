@@ -332,9 +332,34 @@ model Expense {
   @@index([fundingSource, expenseDate])
 }
 
+model Staff {
+  id String @id @default(cuid())
+  employeeNumber String @unique
+  name String
+  staffType String
+  designation String
+  phone String?
+  email String?
+  gender Gender?
+  dateOfBirth DateTime?
+  joiningDate DateTime @default(now())
+  subject String?
+  qualifications String?
+  assignedClasses String?
+  salary Decimal? @db.Decimal(12,2)
+  active Boolean @default(true)
+  notes String?
+  payrollRecords PayrollRecord[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([staffType, active])
+  @@index([name])
+}
+
 model PayrollRecord {
   id String @id @default(cuid())
   payrollMonth DateTime
+  staffId String?
   staffName String
   grossAmount Decimal @db.Decimal(12,2)
   adjustment Decimal @default(0) @db.Decimal(12,2)
@@ -344,10 +369,12 @@ model PayrollRecord {
   paymentMethod FinancePaymentMethod?
   notes String?
   createdBy String?
+  staff Staff? @relation(fields: [staffId], references: [id], onDelete: SetNull)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   @@unique([payrollMonth, staffName])
   @@index([payrollMonth, paymentStatus])
+  @@index([staffId, payrollMonth])
 }
 
 model Exam {
