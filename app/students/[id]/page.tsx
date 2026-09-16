@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 import Link from "next/link";import{useEffect,useState}from"react";
 type S={id:string;studentName:string;dateOfBirth?:string|null;gender?:string|null;guardianName?:string;guardianPhone?:string;guardianEmail?:string|null;previousSchool?:string|null;session?:{name?:string};registry?:{grNumber:string}|null;customFields?:Record<string,string>;enrollment?:{studentId?:string;admissionNumber?:string;className?:string;section?:string|null;enrolledAt?:string;status?:string;attendance?:{id:string;date:string;status:string}[];feeInvoices?:{id:string;invoiceNumber:string;netAmount:string|number;status:string;dueDate:string;payments?:{amount:string|number}[]}[];results?:{id:string;marks:string|number;grade?:string|null;paper:{subject:string;maxMarks:string|number;exam:{name:string}}}[];homeworkSubmissions?:{id:string;status:string;homework:{title:string;subject:string;dueDate:string}}[]}};
