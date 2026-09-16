@@ -39,7 +39,7 @@ export default function ClassResults() {
   const classes = useMemo(() => [...new Set(students.map(s => s.className).filter(Boolean))], [students]);
   const sections = useMemo(() => [...new Set(students.filter(s => !className || s.className === className).map(s => s.section).filter(Boolean))], [students, className]);
 
-  function useStudent(value: string) {
+  function fillStudentFromSelection(value: string) {
     const student = students.find(s => s.id === value);
     if (!student) return;
     setClassName(student.className);
@@ -75,7 +75,7 @@ export default function ClassResults() {
         <label>Section<select className="input" value={section} onChange={e => setSection(e.target.value)}><option value="">All sections</option>{sections.map(s => <option key={s as string}>{s as string}</option>)}</select></label>
         <label>Result Period<select className="input" value={term} onChange={e => setTerm(e.target.value)}>{terms.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}</select></label>
       </div>
-      <div style={{ marginTop: 14, display: "flex", gap: 10, alignItems: "center" }}><button className="button" onClick={load} disabled={loading}>{loading ? "Loading…" : "Generate Result Sheet"}</button><select className="filter-select" defaultValue="" onChange={e => useStudent(e.target.value)}><option value="">Fill class from enrolled student</option>{students.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
+      <div style={{ marginTop: 14, display: "flex", gap: 10, alignItems: "center" }}><button className="button" onClick={load} disabled={loading}>{loading ? "Loading…" : "Generate Result Sheet"}</button><select className="filter-select" defaultValue="" onChange={e => fillStudentFromSelection(e.target.value)}><option value="">Fill class from enrolled student</option>{students.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div>
       {error && <div className="error" style={{ marginTop: 14 }}>{error}</div>}
     </section>
 
