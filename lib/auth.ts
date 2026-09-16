@@ -6,7 +6,7 @@ import type { UserRole } from "@prisma/client";
 export const SESSION_COOKIE = "aghaaz_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 8;
 
-type SessionPayload = { userId: string; role: UserRole; exp: number };
+type SessionPayload = { userId: string; role: UserRole; iat: number; exp: number };
 
 function secret() {
   const value = process.env.AUTH_SECRET;
@@ -41,7 +41,13 @@ export function verifyPassword(password: string, stored: string) {
 }
 
 export function createSessionToken(userId: string, role: UserRole) {
-  const payload: SessionPayload = { userId, role, exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS };
+  const iat = Date.now();
+  const payload: SessionPayload = {
+    userId,
+    role,
+    iat,
+    exp: Math.floor(iat / 1000) + SESSION_TTL_SECONDS,
+  };
   const encoded = base64url(JSON.stringify(payload));
   return `${encoded}.${sign(encoded)}`;
 }
@@ -55,7 +61,7 @@ export function verifySessionToken(token: string | undefined): SessionPayload | 
     const actual = Buffer.from(signature, "base64url");
     if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) return null;
     const payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as SessionPayload;
-    if (!payload.userId || !payload.role || !payload.exp || payload.exp <= Math.floor(Date.now() / 1000)) return null;
+    if (!payload.userId || !payload.role || !Number.isSafeInteger(payload.iat) || !payload.exp || payload.exp <= Math.floor(Date.now() / 1000)) return null;
     return payload;
   } catch {
     return null;
@@ -66,7 +72,12 @@ export async function getCurrentUser() {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   const session = verifySessionToken(token);
   if (!session) return null;
-  return prisma.user.findFirst({ where: { id: session.userId, active: true }, select: { id: true, name: true, email: true, role: true, active: true } });
+  const user = await prisma.user.findFirst({
+    where: { id: session.userId, active: true },
+    select: { id: true, name: true, email: true, role: true, active: true, updatedAt: true },
+  });
+  if (!user || session.iat < user.updatedAt.getTime()) return null;
+  return user;
 }
 
 export async function requireUser() {
