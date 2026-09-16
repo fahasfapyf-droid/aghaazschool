@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
   const paymentDate = parsed.data.paymentDate ? new Date(parsed.data.paymentDate) : null;
   if (paymentDate && Number.isNaN(paymentDate.getTime())) return NextResponse.json({ error: "Invalid payment date" }, { status: 400 });
   if (parsed.data.adjustment > parsed.data.grossAmount || Math.abs(parsed.data.grossAmount - parsed.data.adjustment - parsed.data.netAmount) > 0.01) return NextResponse.json({ error: "Net amount must equal gross amount minus adjustment." }, { status: 400 });
-  let staffId = parsed.data.staffId;
+  const staffId = parsed.data.staffId;
   let staffName = parsed.data.staffName;
   if (staffId) {
     const staff = await prisma.staff.findUnique({ where: { id: staffId }, select: { id: true, name: true } });
