@@ -22,23 +22,115 @@ enum AdmissionStatus {
   CANCELLED
 }
 
-enum DocumentStatus { PENDING VERIFIED REJECTED }
-enum AssessmentType { TEST INTERVIEW }
-enum DecisionType { APPROVED REJECTED WAITLISTED }
-enum PaymentStatus { PENDING PAID WAIVED REFUNDED }
-enum Gender { MALE FEMALE OTHER }
-enum AttendanceStatus { PRESENT ABSENT LATE EXCUSED }
-enum ExamType { MIDTERM FINAL QUIZ MONTHLY OTHER }
-enum AcademicTerm { FIRST SECOND THIRD }
-enum ExamStatus { DRAFT SCHEDULED PUBLISHED }
-enum ResultGrade { A_PLUS A B_PLUS B C D TRY_AGAIN }
-enum UserRole { SUPER_ADMIN ADMIN TEACHER ACCOUNTANT RECEPTIONIST }
-enum DayOfWeek { MONDAY TUESDAY WEDNESDAY THURSDAY FRIDAY SATURDAY SUNDAY }
-enum HomeworkStatus { DRAFT PUBLISHED CLOSED }
-enum SubmissionStatus { NOT_SUBMITTED SUBMITTED REVIEWED }
+enum DocumentStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
 
-enum FinancePaymentMethod { CASH BANK_TRANSFER CHEQUE OTHER }
-enum FinanceStatus { PENDING PAID CANCELLED }
+enum AssessmentType {
+  TEST
+  INTERVIEW
+}
+
+enum DecisionType {
+  APPROVED
+  REJECTED
+  WAITLISTED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  WAIVED
+  REFUNDED
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  EXCUSED
+}
+
+enum ExamType {
+  MIDTERM
+  FINAL
+  QUIZ
+  MONTHLY
+  OTHER
+}
+
+enum AcademicTerm {
+  FIRST
+  SECOND
+  THIRD
+}
+
+enum ExamStatus {
+  DRAFT
+  SCHEDULED
+  PUBLISHED
+}
+
+enum ResultGrade {
+  A_PLUS
+  A
+  B_PLUS
+  B
+  C
+  D
+  TRY_AGAIN
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  TEACHER
+  ACCOUNTANT
+  RECEPTIONIST
+}
+
+enum DayOfWeek {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+enum HomeworkStatus {
+  DRAFT
+  PUBLISHED
+  CLOSED
+}
+
+enum SubmissionStatus {
+  NOT_SUBMITTED
+  SUBMITTED
+  REVIEWED
+}
+
+enum FinancePaymentMethod {
+  CASH
+  BANK_TRANSFER
+  CHEQUE
+  OTHER
+}
+
+enum FinanceStatus {
+  PENDING
+  PAID
+  CANCELLED
+}
 
 model AcademicSession {
   id String @id @default(cuid())
