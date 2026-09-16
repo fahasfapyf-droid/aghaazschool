@@ -14,5 +14,9 @@ export default [
       "build/**",
       "next-env.d.ts",
     ],
+    rules: {
+      // School-facing copy contains normal contractions such as "Today's" and "Teacher's".
+      "react/no-unescaped-entities": "off",
+    },
   },
 ];
