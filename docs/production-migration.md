@@ -13,12 +13,14 @@ Migration order:
 For a new PostgreSQL database, run:
 
 ```bash
-npm ci
+npm install
 npm run db:generate
 npm run db:deploy
 npm run build
 npm start
 ```
+
+The repository currently does not commit an npm lockfile, so use `npm install` rather than `npm ci`. Before introducing `npm ci` in production, commit a reviewed `package-lock.json` and use it consistently in CI and deployment.
 
 `prisma migrate deploy` applies the complete schema baseline and then the later migrations.
 
