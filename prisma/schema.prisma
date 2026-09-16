@@ -22,102 +22,23 @@ enum AdmissionStatus {
   CANCELLED
 }
 
-enum DocumentStatus {
-  PENDING
-  VERIFIED
-  REJECTED
-}
+enum DocumentStatus { PENDING VERIFIED REJECTED }
+enum AssessmentType { TEST INTERVIEW }
+enum DecisionType { APPROVED REJECTED WAITLISTED }
+enum PaymentStatus { PENDING PAID WAIVED REFUNDED }
+enum Gender { MALE FEMALE OTHER }
+enum AttendanceStatus { PRESENT ABSENT LATE EXCUSED }
+enum ExamType { MIDTERM FINAL QUIZ MONTHLY OTHER }
+enum AcademicTerm { FIRST SECOND THIRD }
+enum ExamStatus { DRAFT SCHEDULED PUBLISHED }
+enum ResultGrade { A_PLUS A B_PLUS B C D TRY_AGAIN }
+enum UserRole { SUPER_ADMIN ADMIN TEACHER ACCOUNTANT RECEPTIONIST }
+enum DayOfWeek { MONDAY TUESDAY WEDNESDAY THURSDAY FRIDAY SATURDAY SUNDAY }
+enum HomeworkStatus { DRAFT PUBLISHED CLOSED }
+enum SubmissionStatus { NOT_SUBMITTED SUBMITTED REVIEWED }
 
-enum AssessmentType {
-  TEST
-  INTERVIEW
-}
-
-enum DecisionType {
-  APPROVED
-  REJECTED
-  WAITLISTED
-}
-
-enum PaymentStatus {
-  PENDING
-  PAID
-  WAIVED
-  REFUNDED
-}
-
-enum Gender {
-  MALE
-  FEMALE
-  OTHER
-}
-
-enum AttendanceStatus {
-  PRESENT
-  ABSENT
-  LATE
-  EXCUSED
-}
-
-enum ExamType {
-  MIDTERM
-  FINAL
-  QUIZ
-  MONTHLY
-  OTHER
-}
-
-enum AcademicTerm {
-  FIRST
-  SECOND
-  THIRD
-}
-
-enum ExamStatus {
-  DRAFT
-  SCHEDULED
-  PUBLISHED
-}
-
-enum ResultGrade {
-  A_PLUS
-  A
-  B_PLUS
-  B
-  C
-  D
-  TRY_AGAIN
-}
-
-enum UserRole {
-  SUPER_ADMIN
-  ADMIN
-  TEACHER
-  ACCOUNTANT
-  RECEPTIONIST
-}
-
-enum DayOfWeek {
-  MONDAY
-  TUESDAY
-  WEDNESDAY
-  THURSDAY
-  FRIDAY
-  SATURDAY
-  SUNDAY
-}
-
-enum HomeworkStatus {
-  DRAFT
-  PUBLISHED
-  CLOSED
-}
-
-enum SubmissionStatus {
-  NOT_SUBMITTED
-  SUBMITTED
-  REVIEWED
-}
+enum FinancePaymentMethod { CASH BANK_TRANSFER CHEQUE OTHER }
+enum FinanceStatus { PENDING PAID CANCELLED }
 
 model AcademicSession {
   id String @id @default(cuid())
@@ -281,6 +202,60 @@ model FeePayment {
   paymentMethod String?
   paidAt DateTime @default(now())
   invoice FeeInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+}
+
+model Donation {
+  id String @id @default(cuid())
+  donorName String
+  amount Decimal @db.Decimal(12,2)
+  donationDate DateTime @default(now())
+  purpose String @default("General School Fund")
+  paymentMethod FinancePaymentMethod @default(BANK_TRANSFER)
+  receiptNumber String? @unique
+  notes String?
+  status FinanceStatus @default(PAID)
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([donationDate, status])
+  @@index([purpose, donationDate])
+}
+
+model Expense {
+  id String @id @default(cuid())
+  category String
+  amount Decimal @db.Decimal(12,2)
+  expenseDate DateTime @default(now())
+  paidTo String?
+  paymentMethod FinancePaymentMethod @default(BANK_TRANSFER)
+  fundingSource String @default("School Funds")
+  description String
+  receiptReference String?
+  status FinanceStatus @default(PAID)
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([expenseDate, status])
+  @@index([category, expenseDate])
+  @@index([fundingSource, expenseDate])
+}
+
+model PayrollRecord {
+  id String @id @default(cuid())
+  payrollMonth DateTime
+  staffName String
+  grossAmount Decimal @db.Decimal(12,2)
+  adjustment Decimal @default(0) @db.Decimal(12,2)
+  netAmount Decimal @db.Decimal(12,2)
+  paymentStatus FinanceStatus @default(PENDING)
+  paymentDate DateTime?
+  paymentMethod FinancePaymentMethod?
+  notes String?
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([payrollMonth, staffName])
+  @@index([payrollMonth, paymentStatus])
 }
 
 model Exam {
