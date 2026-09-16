@@ -25,7 +25,6 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: 22
-          cache: npm
 
       - name: Generate package lock
         run: npm install --package-lock-only --ignore-scripts --no-audit
