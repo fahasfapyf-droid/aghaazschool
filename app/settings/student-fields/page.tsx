@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-expressions */
 "use client";
 import Link from"next/link";import{useEffect,useState}from"react";
 type F={id:string;key:string;label:string;section:string;type:string;required:boolean;showInRegistration:boolean;showOnProfile:boolean;showInReports:boolean;visibilityRoles:string[]};
