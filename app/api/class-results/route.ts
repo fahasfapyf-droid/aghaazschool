@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getCurrentUser } from "@/lib/auth";
 
 const terms = ["FIRST", "SECOND", "THIRD"] as const;
 type AcademicTerm = (typeof terms)[number];
@@ -17,7 +18,7 @@ function selectConfigurations<T extends { subject: string; section: string | nul
 }
 
 export async function GET(request: NextRequest) {
-  const user = await (await import("@/lib/auth")).getCurrentUser();
+  const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const sessionId = request.nextUrl.searchParams.get("sessionId");
   const className = request.nextUrl.searchParams.get("className");
