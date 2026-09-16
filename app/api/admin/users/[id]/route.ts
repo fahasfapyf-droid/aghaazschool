@@ -35,7 +35,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       data.role = role;
     }
     if (body.active !== undefined) {
-      const active = Boolean(body.active);
+      if (typeof body.active !== "boolean") return NextResponse.json({ error: "Active must be a boolean." }, { status: 400 });
+      const active = body.active;
       if (target.id === actor.id && !active) return NextResponse.json({ error: "You cannot deactivate your own account." }, { status: 400 });
       data.active = active;
     }
