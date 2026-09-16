@@ -3,9 +3,31 @@ import { prisma } from "@/lib/prisma";
 import { createSessionToken, verifyPassword, SESSION_COOKIE } from "@/lib/auth";
 import { requestAuditContext, writeAuditLog } from "@/lib/audit";
 
+const MAX_LOGIN_BODY_BYTES = 8 * 1024;
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const MAX_FAILED_LOGINS_PER_IP = 10;
+
+function tooManyAttemptsResponse() {
+  return NextResponse.json(
+    { error: "Too many sign-in attempts. Please try again later." },
+    { status: 429, headers: { "Retry-After": String(Math.ceil(LOGIN_WINDOW_MS / 1000)) } },
+  );
+}
+
 export async function POST(request: NextRequest) {
   const context = requestAuditContext(request);
   try {
+    const contentLength = Number(request.headers.get("content-length") || 0);
+    if (contentLength > MAX_LOGIN_BODY_BYTES) return NextResponse.json({ error: "Request is too large." }, { status: 413 });
+
+    const since = new Date(Date.now() - LOGIN_WINDOW_MS);
+    if (context.ipAddress) {
+      const recentFailures = await prisma.auditLog.count({
+        where: { action: "LOGIN_FAILED", ipAddress: context.ipAddress, createdAt: { gte: since } },
+      });
+      if (recentFailures >= MAX_FAILED_LOGINS_PER_IP) return tooManyAttemptsResponse();
+    }
+
     const body = await request.json();
     const email = String(body.email ?? "").trim().toLowerCase();
     const password = String(body.password ?? "");
