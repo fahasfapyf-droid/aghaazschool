@@ -54,3 +54,5 @@ jobs:
           name: npm-audit-report
           path: npm-audit.json
           if-no-files-found: error
+
+      # The report is informational; CI remains the release gate.
