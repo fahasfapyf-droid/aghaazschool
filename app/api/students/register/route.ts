@@ -23,7 +23,8 @@ export async function GET() {
   if (!user) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   if (!roleAllowed(user.role, REGISTRATION_ROLES)) return NextResponse.json({ error: "You do not have permission to access registration fields." }, { status: 403 });
   try {
-    return NextResponse.json(await getCustomFieldDefinitions(true));
+    const fields = await getCustomFieldDefinitions(true);
+    return NextResponse.json(fields.filter(field => field.visibilityRoles.includes(user.role)));
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: "Unable to load registration fields" }, { status: 500 });
@@ -53,7 +54,7 @@ export async function POST(request: NextRequest) {
     const customFields = body.customFields && typeof body.customFields === "object" && !Array.isArray(body.customFields)
       ? body.customFields as Record<string, unknown>
       : {};
-    const definitions = await getCustomFieldDefinitions(true);
+    const definitions = (await getCustomFieldDefinitions(true)).filter(field => field.visibilityRoles.includes(user.role));
     for (const field of definitions) {
       if (!field.required || !conditionMatches(field.condition, customFields)) continue;
       const value = customFields[field.key];
@@ -89,7 +90,7 @@ export async function POST(request: NextRequest) {
       }});
       const grNumber = await generateGrNumber(tx);
       const registry = await tx.$queryRawUnsafe<{ id: string }[]>(`INSERT INTO "StudentRegistry" ("id","enrollmentId","grNumber") VALUES ($1,$2,$3) RETURNING "id"`, crypto.randomUUID(), enrollment.id, grNumber);
-      await saveCustomValues(tx, registry[0].id, customFields);
+      await saveCustomValues(tx, registry[0].id, customFields, user.role);
       return { application, enrollment, grNumber };
     });
 
