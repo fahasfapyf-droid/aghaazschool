@@ -1,0 +1,56 @@
+name: Dependency audit
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - package.json
+      - package-lock.json
+      - .github/workflows/dependency-audit.yml
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: npm audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts --no-audit
+
+      - name: Run npm audit
+        run: |
+          npm audit --json > npm-audit.json || true
+          node - <<'NODE'
+          const fs = require("node:fs");
+          const report = JSON.parse(fs.readFileSync("npm-audit.json", "utf8"));
+          const counts = report.metadata?.vulnerabilities ?? {};
+          console.log(`Audit counts: ${JSON.stringify(counts)}`);
+          for (const [name, item] of Object.entries(report.vulnerabilities ?? {})) {
+            const via = Array.isArray(item.via)
+              ? item.via.map((entry) => typeof entry === "string" ? entry : `${entry.title ?? "advisory"} (${entry.url ?? "no-url"})`).join("; ")
+              : "";
+            console.log(`${item.severity.toUpperCase()} ${name} ${item.range} fix=${JSON.stringify(item.fixAvailable)} via=${via}`);
+          }
+          NODE
+
+      - name: Upload audit report
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-report
+          path: npm-audit.json
+          if-no-files-found: error
