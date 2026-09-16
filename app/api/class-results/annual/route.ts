@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
   const configs = selectConfigurations(rawConfigs as Config[], section);
 
   const exams = await prisma.exam.findMany({
-    where: { sessionId, term: { in: ["FIRST", "SECOND", "THIRD"] } },
+    where: { sessionId, term: { in: ["FIRST", "SECOND", "THIRD"] }, status: "PUBLISHED" },
     include: { papers: { where: { className }, include: { results: { include: { components: true } } } } },
     orderBy: { startDate: "desc" }
   });
