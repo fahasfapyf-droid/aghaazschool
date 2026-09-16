@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUser } from "@/lib/auth";
 
 const terms = ["FIRST", "SECOND", "THIRD"] as const;
 type AcademicTerm = (typeof terms)[number];
@@ -18,7 +17,7 @@ function selectConfigurations<T extends { subject: string; section: string | nul
 }
 
 export async function GET(request: NextRequest) {
-  const user = await getCurrentUser();
+  const user = await (await import("@/lib/auth")).getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const sessionId = request.nextUrl.searchParams.get("sessionId");
   const className = request.nextUrl.searchParams.get("className");
@@ -35,7 +34,7 @@ export async function GET(request: NextRequest) {
     orderBy: [{ displayOrder: "asc" }, { subject: "asc" }]
   });
   const subjects = selectConfigurations(configs, section);
-  const exams = await prisma.exam.findMany({ where: { sessionId, term }, include: { papers: { where: { className }, include: { results: { include: { components: true } } } } }, orderBy: { startDate: "desc" } });
+  const exams = await prisma.exam.findMany({ where: { sessionId, term, status: "PUBLISHED" }, include: { papers: { where: { className }, include: { results: { include: { components: true } } } } }, orderBy: { startDate: "desc" } });
   const paperBySubject = new Map<string, (typeof exams)[number]["papers"][number]>();
   for (const exam of exams) for (const paper of exam.papers) if (!paperBySubject.has(paper.subject.toLowerCase())) paperBySubject.set(paper.subject.toLowerCase(), paper);
   const fallbackSubjects = [...paperBySubject.values()].map(p => ({ subject: p.subject, maxMarks: Number(p.maxMarks), displayOrder: 9999, section: null }));
