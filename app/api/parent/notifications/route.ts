@@ -12,7 +12,7 @@ function hashToken(token: string) {
 async function session() {
   const token = (await cookies()).get(COOKIE)?.value;
   if (!token) return null;
-  const rows = await prisma.$queryRawUnsafe<Array<{ id: string; enrollmentId: string; applicationId: string; studentName: string; guardianName: string }>>(`SELECT p."id",p."enrollmentId",a."id" AS "applicationId",a."studentName",a."guardianName" FROM "ParentAccessToken" p JOIN "Enrollment" e ON e."id"=p."enrollmentId" JOIN "Application" a ON a."id"=e."applicationId" WHERE p."tokenHash"=$1 AND p."revokedAt" IS NULL AND p."expiresAt">NOW() LIMIT 1`, hashToken(token));
+  const rows = await prisma.$queryRawUnsafe<Array<{ id: string; enrollmentId: string; applicationId: string; studentName: string; guardianName: string }>>(`SELECT p."id",p."enrollmentId",a."id" AS "applicationId",a."studentName",a."guardianName" FROM "ParentAccessToken" p JOIN "Enrollment" e ON e."id"=p."enrollmentId" JOIN "Application" a ON a."id"=e."applicationId" WHERE p."tokenHash"=$1 AND p."revokedAt" IS NULL AND p."expiresAt">NOW() AND e."status" NOT IN ('WITHDRAWN','TRANSFERRED') LIMIT 1`, hashToken(token));
   if (!rows.length) return null;
   await prisma.$executeRawUnsafe(`UPDATE "ParentAccessToken" SET "lastUsedAt"=NOW() WHERE "id"=$1`, rows[0].id);
   return rows[0];
