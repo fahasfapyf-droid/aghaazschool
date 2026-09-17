@@ -10,7 +10,6 @@ type Student = { id: string; name: string; className: string; section?: string |
 type Session = { id: string; name: string };
 
 const terms = [{ value: "FIRST", label: "1st Term" }, { value: "SECOND", label: "2nd Term" }, { value: "THIRD", label: "3rd Term" }, { value: "ANNUAL", label: "Annual Result" }];
-const grade = (p: number) => p <= 0 ? "—" : p >= 90 ? "A+" : p >= 80 ? "A" : p >= 70 ? "B+" : p >= 60 ? "B" : p >= 50 ? "C" : p >= 40 ? "D" : "TRY AGAIN";
 
 export default function ClassResults() {
   const [students, setStudents] = useState<Student[]>([]);
@@ -81,7 +80,7 @@ export default function ClassResults() {
 
     {sheet && <section className="class-result-sheet">
       <div className="result-heading"><div><div className="eyebrow">AGHAAZ SCHOOL</div><h2>{sheet.term === "ANNUAL" ? "Annual Result Sheet" : sheet.term === "FIRST" ? "1st Term" : sheet.term === "SECOND" ? "2nd Term" : "3rd Term"} Result Sheet</h2><p>Academic Session: {sheet.session} · Class: {sheet.className}{sheet.section ? ` · Section: ${sheet.section}` : ""}</p></div><div className="result-meta"><strong>{sheet.rows.length}</strong><span>Students</span></div></div>
-      <div className="table-wrap"><table className="class-result-table"><thead><tr><th>#</th><th>Student</th><th>Admission No.</th>{subjectColumns.map((s, index) => <th key={`${s.term || "term"}-${s.subject}-${index}`}>{s.term && <small>{s.term}</small>}{s.subject}<small>/ {s.maxMarks}</small></th>)}<th>Total</th><th>%</th><th>Grade</th><th>Position</th></tr></thead><tbody>{sheet.rows.map((row, index) => { const finalGrade = row.grade || grade(row.percentage); return <tr key={row.id}><td>{index + 1}</td><td><strong>{row.name}</strong></td><td>{row.admissionNumber}</td>{row.values.map((v, valueIndex) => <td key={`${v.term || "term"}-${v.subject}-${valueIndex}`}>{v.marks === 0 ? "0" : v.marks || "—"}</td>)}<td>{row.obtainedMarks} / {row.totalMarks}</td><td>{row.percentage.toFixed(1)}%</td><td>{finalGrade}</td><td>{row.position || "—"}</td></tr>})}</tbody></table></div>
+      <div className="table-wrap"><table className="class-result-table"><thead><tr><th>#</th><th>Student</th><th>Admission No.</th>{subjectColumns.map((s, index) => <th key={`${s.term || "term"}-${s.subject}-${index}`}>{s.term && <small>{s.term}</small>}{s.subject}<small>/ {s.maxMarks}</small></th>)}<th>Total</th><th>%</th><th>Grade</th><th>Position</th></tr></thead><tbody>{sheet.rows.map((row, index) => { const finalGrade = row.grade || "—"; return <tr key={row.id}><td>{index + 1}</td><td><strong>{row.name}</strong></td><td>{row.admissionNumber}</td>{row.values.map((v, valueIndex) => <td key={`${v.term || "term"}-${v.subject}-${valueIndex}`}>{v.marks === 0 ? "0" : v.marks || "—"}</td>)}<td>{row.obtainedMarks} / {row.totalMarks}</td><td>{row.percentage.toFixed(1)}%</td><td>{finalGrade}</td><td>{row.position || "—"}</td></tr>})}</tbody></table></div>
       <div className="result-footer"><span>Class Teacher: __________________</span><span>Principal: __________________</span><span>Date: __________________</span></div>
     </section>}
 
