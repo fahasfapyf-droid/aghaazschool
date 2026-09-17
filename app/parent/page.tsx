@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+type LeaveRequest = { id: string; startDate: string; endDate: string; reason: string; status: string; reviewRemarks?: string | null; reviewedAt?: string | null; createdAt: string };
 type Dashboard = {
   student: { name: string; guardian: string; className: string; section: string; status: string; admissionNumber: string };
   academic: { sessionName: string | null; gradeName: string | null; sectionName: string | null } | null;
@@ -16,8 +17,14 @@ const date = (value: string) => new Date(value).toLocaleDateString();
 
 export default function ParentDashboardPage() {
   const [data, setData] = useState<Dashboard | null>(null);
+  const [requests, setRequests] = useState<LeaveRequest[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [reason, setReason] = useState("");
+  const [requestMessage, setRequestMessage] = useState("");
 
   useEffect(() => {
     async function start() {
@@ -30,10 +37,11 @@ export default function ParentDashboardPage() {
           if (!response.ok) throw new Error(body.error || "Invalid parent access link.");
           window.history.replaceState({}, "", "/parent");
         }
-        const response = await fetch("/api/parent/dashboard", { cache: "no-store" });
-        const body = await response.json();
-        if (!response.ok) throw new Error(body.error || "Parent access required.");
-        setData(body);
+        const [dashboardResponse, leaveResponse] = await Promise.all([fetch("/api/parent/dashboard", { cache: "no-store" }), fetch("/api/parent/leave-requests", { cache: "no-store" })]);
+        const dashboardBody = await dashboardResponse.json();
+        if (!dashboardResponse.ok) throw new Error(dashboardBody.error || "Parent access required.");
+        setData(dashboardBody);
+        if (leaveResponse.ok) setRequests((await leaveResponse.json()).requests || []);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Unable to open parent portal.");
       } finally {
@@ -42,6 +50,20 @@ export default function ParentDashboardPage() {
     }
     void start();
   }, []);
+
+  async function submitLeave(event: React.FormEvent) {
+    event.preventDefault();
+    setSubmitting(true); setRequestMessage("");
+    try {
+      const response = await fetch("/api/parent/leave-requests", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ startDate, endDate, reason }) });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Unable to submit leave request.");
+      setRequests((current) => [body, ...current]);
+      setStartDate(""); setEndDate(""); setReason("");
+      setRequestMessage("Leave request submitted for school review.");
+    } catch (e) { setRequestMessage(e instanceof Error ? e.message : "Unable to submit leave request."); }
+    finally { setSubmitting(false); }
+  }
 
   async function logout() {
     await fetch("/api/parent/session", { method: "DELETE" });
@@ -80,6 +102,8 @@ export default function ParentDashboardPage() {
       <section className="panel"><div className="panel-header"><div><h2>Fees</h2><p>Invoice balances and payment history</p></div></div>{recentFees.length ? <div className="table-wrap"><table><thead><tr><th>Invoice</th><th>Type</th><th>Amount</th><th>Paid</th><th>Balance</th><th>Due</th></tr></thead><tbody>{recentFees.map(item => <tr key={item.id}><td>{item.invoiceNumber}</td><td>{item.feeType}</td><td>{money(item.netAmount)}</td><td>{money(item.paid)}</td><td>{money(item.balance)}</td><td>{date(item.dueDate)}</td></tr>)}</tbody></table></div> : <div className="empty-state">No fee records yet.</div>}</section>
 
       <section className="panel"><div className="panel-header"><div><h2>Published Results</h2><p>Only published examinations are shown</p></div></div>{recentResults.length ? <div className="table-wrap"><table><thead><tr><th>Exam</th><th>Subject</th><th>Marks</th><th>Grade</th></tr></thead><tbody>{recentResults.map(item => <tr key={item.id}><td>{item.exam}</td><td>{item.subject}</td><td>{item.marks} / {item.maxMarks}</td><td>{item.grade}</td></tr>)}</tbody></table></div> : <div className="empty-state">No published results yet.</div>}</section>
+
+      <section className="panel"><div className="panel-header"><div><h2>Request Leave</h2><p>Submit an absence request for school review.</p></div></div><form onSubmit={submitLeave} style={{ display: "grid", gap: 12 }}><div className="form-grid"><label>Start date<input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} required /></label><label>End date<input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} required /></label></div><label>Reason<textarea value={reason} onChange={e => setReason(e.target.value)} minLength={5} maxLength={500} required placeholder="Reason for absence" /></label><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}><button className="button" type="submit" disabled={submitting}>{submitting ? "Submitting…" : "Submit leave request"}</button>{requestMessage && <span>{requestMessage}</span>}</div></form>{requests.length > 0 && <div className="table-wrap" style={{ marginTop: 18 }}><table><thead><tr><th>Dates</th><th>Reason</th><th>Status</th><th>Review</th></tr></thead><tbody>{requests.slice(0, 10).map(item => <tr key={item.id}><td>{date(item.startDate)} – {date(item.endDate)}</td><td>{item.reason}</td><td>{item.status}</td><td>{item.reviewRemarks || "—"}</td></tr>)}</tbody></table></div>}</section>
     </div>
   </main>;
 }
