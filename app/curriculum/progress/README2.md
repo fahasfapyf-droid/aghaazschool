@@ -1,0 +1,1 @@
+Curriculum progress requires an authenticated school user with teacher or administrative access.
