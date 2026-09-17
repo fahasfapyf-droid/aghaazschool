@@ -12,6 +12,13 @@ async function authorize() {
   return user;
 }
 
+async function staffForUser(userId: string) {
+  const rows = await prisma.$queryRawUnsafe<Array<{ id: string; employeeNumber: string; name: string; staffType: string }>>(
+    `SELECT "id","employeeNumber","name","staffType" FROM "Staff" WHERE "userId"=$1 LIMIT 1`, userId,
+  );
+  return rows[0] ?? null;
+}
+
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const context = requestAuditContext(request);
   try {
@@ -53,11 +60,29 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       if (password.length < 8) return NextResponse.json({ error: "Password must be at least 8 characters." }, { status: 400 });
       data.passwordHash = createPasswordHash(password);
     }
-    if (!Object.keys(data).length) return NextResponse.json({ error: "No changes supplied." }, { status: 400 });
 
-    const user = await prisma.user.update({ where: { id }, data, select: { id: true, name: true, email: true, role: true, active: true, updatedAt: true } });
-    await writeAuditLog({ userId: actor.id, action: "USER_UPDATED", entityType: "User", entityId: user.id, metadata: { changedFields: Object.keys(data), role: user.role, active: user.active }, context });
-    return NextResponse.json({ user });
+    const hasStaffChange = Object.prototype.hasOwnProperty.call(body, "staffId");
+    const staffId = body.staffId === null || body.staffId === "" ? null : body.staffId === undefined ? undefined : String(body.staffId);
+    if (!Object.keys(data).length && !hasStaffChange) return NextResponse.json({ error: "No changes supplied." }, { status: 400 });
+    if (staffId !== undefined) {
+      if (staffId) {
+        const staff = await prisma.$queryRawUnsafe<Array<{ id: string; userId: string | null }>>(`SELECT "id","userId" FROM "Staff" WHERE "id"=$1 LIMIT 1`, staffId);
+        if (!staff.length) return NextResponse.json({ error: "Staff record not found." }, { status: 404 });
+        if (staff[0].userId && staff[0].userId !== id) return NextResponse.json({ error: "That staff record is already linked to another user account." }, { status: 409 });
+      }
+    }
+
+    const user = await prisma.$transaction(async tx => {
+      const updated = Object.keys(data).length ? await tx.user.update({ where: { id }, data, select: { id: true, name: true, email: true, role: true, active: true, updatedAt: true } }) : await tx.user.findUniqueOrThrow({ where: { id }, select: { id: true, name: true, email: true, role: true, active: true, updatedAt: true } });
+      if (staffId !== undefined) {
+        await tx.$executeRawUnsafe(`UPDATE "Staff" SET "userId"=NULL,"updatedAt"=NOW() WHERE "userId"=$1`, id);
+        if (staffId) await tx.$executeRawUnsafe(`UPDATE "Staff" SET "userId"=$1,"updatedAt"=NOW() WHERE "id"=$2`, id, staffId);
+      }
+      return updated;
+    });
+
+    await writeAuditLog({ userId: actor.id, action: "USER_UPDATED", entityType: "User", entityId: user.id, metadata: { changedFields: [...Object.keys(data), ...(hasStaffChange ? ["staffId"] : [])], role: user.role, active: user.active, staffId: staffId === undefined ? "unchanged" : staffId }, context });
+    return NextResponse.json({ user: { ...user, linkedStaff: await staffForUser(user.id) } });
   } catch (error) {
     const status = error instanceof Error && error.message === "FORBIDDEN" ? 403 : 401;
     return NextResponse.json({ error: status === 403 ? "Administrator access required." : "Authentication required." }, { status });
