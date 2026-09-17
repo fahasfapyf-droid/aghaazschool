@@ -11,7 +11,7 @@ const actionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("assessment"), type: z.enum(["TEST", "INTERVIEW"]), scheduledAt: z.string().datetime(), evaluator: z.string().trim().max(120).optional(), score: z.coerce.number().min(0).max(100).optional(), result: z.string().trim().max(100).optional(), remarks: z.string().trim().max(500).optional() }),
   z.object({ action: z.literal("payment"), feeType: z.string().trim().min(1).max(100), amount: z.coerce.number().positive(), discount: z.coerce.number().min(0).default(0), status: z.enum(["PENDING", "PAID", "WAIVED", "REFUNDED"]).default("PAID"), paymentMethod: z.string().trim().max(60).optional(), receiptNumber: z.string().trim().max(80).optional() }).refine(x => x.discount <= x.amount, { message: "Discount cannot exceed the payment amount.", path: ["discount"] }),
   z.object({ action: z.literal("decision"), decision: z.enum(["APPROVED", "REJECTED", "WAITLISTED"]), decidedBy: z.string().trim().min(2).max(120).optional(), remarks: z.string().trim().max(500).optional() }),
-  z.object({ action: z.literal("enrollment"), studentId: z.string().trim().min(1).max(100), admissionNumber: z.string().trim().min(1).max(100), className: z.string().trim().min(1).max(80), section: z.string().trim().max(40).optional() }),
+  z.object({ action: z.literal("enrollment"), studentId: z.string().trim().min(1).max(100), admissionNumber: z.string().trim().min(1).max(100), className: z.string().trim().min(1).max(80), section: z.string().trim().min(1).max(40) }),
 ]);
 
 const staffRoles = ["SUPER_ADMIN", "ADMIN", "RECEPTIONIST"] as const;
@@ -91,22 +91,20 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       if (latest.status !== "APPROVED") throw new Error(`APPLICATION_STATUS_CHANGED:${latest.status}`);
       if (latest.enrollment) throw new Error("ALREADY_ENROLLED");
       const className = input.className.trim();
-      const sectionName = input.section?.trim() || null;
-      const grade = await tx.academicGrade.findFirst({ where: { sessionId: latest.sessionId, active: true, OR: [{ name: className }, { code: className }] }, select: { id: true, name: true, sessionId: true } });
+      const sectionName = input.section.trim();
+      const grade = await tx.academicGrade.findFirst({ where: { sessionId: latest.sessionId, active: true, OR: [{ name: className }, { code: className }] }, select: { id: true, name: true, sessionId: true, session: { select: { name: true } } } });
       if (!grade) throw new Error("ACADEMIC_GRADE_NOT_FOUND");
-      let sectionId: string | null = null;
-      let resolvedSection = sectionName;
-      if (sectionName) {
-        const section = await tx.academicSection.findFirst({ where: { gradeId: grade.id, name: sectionName, active: true }, select: { id: true, name: true } });
-        if (!section) throw new Error("ACADEMIC_SECTION_NOT_FOUND");
-        sectionId = section.id;
-        resolvedSection = section.name;
+      const section = await tx.academicSection.findFirst({ where: { gradeId: grade.id, name: sectionName, active: true }, select: { id: true, name: true, capacity: true } });
+      if (!section) throw new Error("ACADEMIC_SECTION_NOT_FOUND");
+      if (section.capacity !== null) {
+        const countRows = await tx.$queryRawUnsafe<{ count: bigint }[]>(`SELECT COUNT(*)::bigint AS count FROM "Enrollment" WHERE "academicSectionId"=$1 AND lower("status") IN ('active','enrolled')`, section.id);
+        if (Number(countRows[0]?.count || 0) >= Number(section.capacity)) throw new Error("ACADEMIC_SECTION_AT_CAPACITY");
       }
-      const created = await tx.enrollment.create({ data: { applicationId: id, studentId: input.studentId, admissionNumber: input.admissionNumber, className: grade.name, section: resolvedSection, academicSessionId: grade.sessionId, academicGradeId: grade.id, academicSectionId: sectionId } });
+      const created = await tx.enrollment.create({ data: { applicationId: id, studentId: input.studentId, admissionNumber: input.admissionNumber, className: grade.name, section: section.name, academicSessionId: grade.sessionId, academicGradeId: grade.id, academicSectionId: section.id } });
       const grNumber = await generateGrNumber(tx);
       const registryRows = await tx.$queryRawUnsafe<{ id: string }[]>(`INSERT INTO "StudentRegistry" ("id","enrollmentId","grNumber") VALUES ($1,$2,$3) RETURNING "id"`, randomUUID(), created.id, grNumber);
       if (!registryRows[0]) throw new Error("STUDENT_REGISTRY_CREATE_FAILED");
-      await tx.$executeRawUnsafe(`INSERT INTO "EnrollmentHistory" ("id","enrollmentId","action","academicSessionId","academicSessionName","academicGradeId","academicGradeName","academicSectionId","academicSectionName","className","section","status","effectiveAt","note","createdBy") VALUES ($1,$2,'ENROLLED',$3,$4,$5,$6,$7,$8,$9,$10,'ACTIVE',CURRENT_TIMESTAMP,$11,$12)`, randomUUID(), created.id, grade.sessionId, null, grade.id, grade.name, sectionId, resolvedSection, grade.name, resolvedSection, "Admission enrollment", user.id);
+      await tx.$executeRawUnsafe(`INSERT INTO "EnrollmentHistory" ("id","enrollmentId","action","academicSessionId","academicSessionName","academicGradeId","academicGradeName","academicSectionId","academicSectionName","className","section","status","effectiveAt","note","createdBy") VALUES ($1,$2,'ENROLLED',$3,$4,$5,$6,$7,$8,$9,$10,'ACTIVE',CURRENT_TIMESTAMP,$11,$12)`, randomUUID(), created.id, grade.sessionId, grade.session.name, grade.id, grade.name, section.id, section.name, grade.name, section.name, "Admission enrollment", user.id);
       await tx.application.update({ where: { id }, data: { status: "ENROLLED" } });
       return { enrollment: created, grNumber };
     });
@@ -117,6 +115,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (error instanceof Error && error.message === "ALREADY_ENROLLED") return NextResponse.json({ error: "Application is already enrolled." }, { status: 409 });
     if (error instanceof Error && error.message === "ACADEMIC_GRADE_NOT_FOUND") return NextResponse.json({ error: "No active academic grade matches this class for the application session." }, { status: 400 });
     if (error instanceof Error && error.message === "ACADEMIC_SECTION_NOT_FOUND") return NextResponse.json({ error: "The selected section does not belong to the selected academic grade or is inactive." }, { status: 400 });
+    if (error instanceof Error && error.message === "ACADEMIC_SECTION_AT_CAPACITY") return NextResponse.json({ error: "The selected section is at capacity." }, { status: 409 });
     if (error instanceof Error && error.message.startsWith("APPLICATION_STATUS_CHANGED:")) return NextResponse.json({ error: `Application changed concurrently; current status is ${error.message.split(":")[1]}. Please retry.` }, { status: 409 });
     console.error(error);
     return NextResponse.json({ error: "Unable to complete admission action" }, { status: 500 });
