@@ -3,8 +3,9 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, roleAllowed } from "@/lib/auth";
+import type { UserRole } from "@prisma/client";
 
-const WRITE_ROLES = ["SUPER_ADMIN", "ADMIN", "RECEPTIONIST"] as const;
+const WRITE_ROLES: UserRole[] = ["SUPER_ADMIN", "ADMIN", "RECEPTIONIST"];
 const inputSchema = z.object({
   action: z.enum(["PROMOTE", "TRANSFER", "WITHDRAW", "REACTIVATE"]),
   sessionId: z.string().optional(),
@@ -13,7 +14,8 @@ const inputSchema = z.object({
   note: z.string().trim().max(500).optional(),
 });
 
-type Structure = { sessionId: string; sessionName: string; gradeId: string; gradeName: string; sectionId: string; sectionName: string; className: string; };
+type Structure = { sessionId: string; sessionName: string; gradeId: string; gradeName: string; sectionId: string; sectionName: string; className: string };
+type AcademicState = { academicSessionId: string | null; academicGradeId: string | null; academicSectionId: string | null };
 
 async function resolveStructure(sessionId: string, gradeId: string, sectionId: string): Promise<Structure | null> {
   const rows = await prisma.$queryRawUnsafe<Structure[]>(`
@@ -32,7 +34,7 @@ async function resolveStructure(sessionId: string, gradeId: string, sectionId: s
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!roleAllowed(user.role, WRITE_ROLES as never)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!roleAllowed(user.role, WRITE_ROLES)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const { id } = await params;
   try {
@@ -41,6 +43,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (!application?.enrollment) return NextResponse.json({ error: "Student not found" }, { status: 404 });
 
     const current = application.enrollment;
+    const academicRows = await prisma.$queryRawUnsafe<AcademicState[]>(`SELECT "academicSessionId","academicGradeId","academicSectionId" FROM "Enrollment" WHERE "id"=$1 LIMIT 1`, current.id);
+    const academic = academicRows[0] || { academicSessionId: null, academicGradeId: null, academicSectionId: null };
+
     if (input.action === "REACTIVATE") {
       if (!["WITHDRAWN", "TRANSFERRED", "INACTIVE", "withdrawn", "transferred", "inactive"].includes(current.status)) {
         return NextResponse.json({ error: "Student is already active." }, { status: 400 });
@@ -64,47 +69,28 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       const capacity = capacityRows[0]?.capacity;
       const countRows = await prisma.$queryRawUnsafe<{ count: bigint }[]>(`SELECT COUNT(*)::bigint AS count FROM "Enrollment" WHERE "academicSectionId"=$1 AND lower("status") IN ('active','enrolled') AND "id"<>$2`, structure.sectionId, current.id);
       const count = Number(countRows[0]?.count || 0);
-      if (capacity !== null && capacity !== undefined && count >= Number(capacity)) {
-        return NextResponse.json({ error: "The selected section is at capacity." }, { status: 409 });
-      }
+      if (capacity !== null && capacity !== undefined && count >= Number(capacity)) return NextResponse.json({ error: "The selected section is at capacity." }, { status: 409 });
     }
 
     const actionStatus = input.action === "WITHDRAW" ? "WITHDRAWN" : input.action === "TRANSFER" ? "TRANSFERRED" : "ACTIVE";
     const actionLabel = input.action;
-    const historyId = randomUUID();
 
     await prisma.$transaction(async (tx) => {
       await tx.$executeRawUnsafe(`
         INSERT INTO "EnrollmentHistory" ("id","enrollmentId","action","academicSessionId","academicSessionName","academicGradeId","academicGradeName","academicSectionId","academicSectionName","className","section","status","effectiveAt","note","createdBy")
         VALUES ($1,$2,'BEFORE_' || $3,$4,$5,$6,$7,$8,$9,$10,$11,$12,CURRENT_TIMESTAMP,$13,$14)
-      `,
-        historyId, current.id, actionLabel,
-        current.academicSessionId, null, current.academicGradeId, null, current.academicSectionId, null,
-        current.className, current.section, current.status, input.note || null, user.id
-      );
+      `, randomUUID(), current.id, actionLabel, academic.academicSessionId, null, academic.academicGradeId, null, academic.academicSectionId, null, current.className, current.section, current.status, input.note || null, user.id);
 
       if (structure) {
-        await tx.$executeRawUnsafe(`
-          UPDATE "Enrollment"
-          SET "academicSessionId"=$1,"academicGradeId"=$2,"academicSectionId"=$3,"className"=$4,"section"=$5,"status"=$6
-          WHERE "id"=$7
-        `, structure.sessionId, structure.gradeId, structure.sectionId, structure.className, structure.sectionName, actionStatus, current.id);
+        await tx.$executeRawUnsafe(`UPDATE "Enrollment" SET "academicSessionId"=$1,"academicGradeId"=$2,"academicSectionId"=$3,"className"=$4,"section"=$5,"status"=$6 WHERE "id"=$7`, structure.sessionId, structure.gradeId, structure.sectionId, structure.className, structure.sectionName, actionStatus, current.id);
       } else {
         await tx.enrollment.update({ where: { id: current.id }, data: { status: actionStatus } });
       }
 
-      const afterHistoryId = randomUUID();
       await tx.$executeRawUnsafe(`
         INSERT INTO "EnrollmentHistory" ("id","enrollmentId","action","academicSessionId","academicSessionName","academicGradeId","academicGradeName","academicSectionId","academicSectionName","className","section","status","effectiveAt","note","createdBy")
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,CURRENT_TIMESTAMP,$13,$14)
-      `,
-        afterHistoryId, current.id, actionLabel,
-        structure?.sessionId ?? current.academicSessionId, structure?.sessionName ?? null,
-        structure?.gradeId ?? current.academicGradeId, structure?.gradeName ?? null,
-        structure?.sectionId ?? current.academicSectionId, structure?.sectionName ?? null,
-        structure?.className ?? current.className, structure?.sectionName ?? current.section,
-        actionStatus, input.note || null, user.id
-      );
+      `, randomUUID(), current.id, actionLabel, structure?.sessionId ?? academic.academicSessionId, structure?.sessionName ?? null, structure?.gradeId ?? academic.academicGradeId, structure?.gradeName ?? null, structure?.sectionId ?? academic.academicSectionId, structure?.sectionName ?? null, structure?.className ?? current.className, structure?.sectionName ?? current.section, actionStatus, input.note || null, user.id);
 
       await tx.auditLog.create({ data: { userId: user.id, action: `STUDENT_${actionLabel}`, entityType: "Enrollment", entityId: current.id, metadata: { applicationId: application.id, from: { className: current.className, section: current.section, status: current.status }, to: { className: structure?.className ?? current.className, section: structure?.sectionName ?? current.section, status: actionStatus }, note: input.note || null } } });
     });
