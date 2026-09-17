@@ -13,12 +13,12 @@ const updateSchema = z.object({
 
 const transitions: Record<AdmissionStatus, readonly AdmissionStatus[]> = {
   NEW: ["UNDER_REVIEW", "CANCELLED"],
-  UNDER_REVIEW: ["DOCUMENTS_PENDING", "ASSESSMENT_SCHEDULED", "CANCELLED"],
-  DOCUMENTS_PENDING: ["UNDER_REVIEW", "ASSESSMENT_SCHEDULED", "CANCELLED"],
-  ASSESSMENT_SCHEDULED: ["ASSESSMENT_COMPLETED", "CANCELLED"],
-  ASSESSMENT_COMPLETED: ["APPROVED", "WAITLISTED", "REJECTED", "CANCELLED"],
-  APPROVED: ["PAYMENT_PENDING", "ENROLLED", "CANCELLED"],
-  PAYMENT_PENDING: ["APPROVED", "CANCELLED"],
+  UNDER_REVIEW: ["DOCUMENTS_PENDING", "CANCELLED"],
+  DOCUMENTS_PENDING: ["UNDER_REVIEW", "CANCELLED"],
+  ASSESSMENT_SCHEDULED: ["CANCELLED"],
+  ASSESSMENT_COMPLETED: ["CANCELLED"],
+  APPROVED: ["CANCELLED"],
+  PAYMENT_PENDING: ["CANCELLED"],
   ENROLLED: [],
   REJECTED: [],
   WAITLISTED: ["UNDER_REVIEW", "CANCELLED"],
@@ -58,7 +58,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (!current) return NextResponse.json({ error: "Application not found" }, { status: 404 });
     if (parsed.data.status && parsed.data.status !== current.status) {
       if (current.enrollment || current.status === "ENROLLED") return NextResponse.json({ error: "Enrolled admissions must be changed through the student enrollment lifecycle." }, { status: 409 });
-      if (!transitions[current.status as AdmissionStatus]?.includes(parsed.data.status as AdmissionStatus)) return NextResponse.json({ error: `Admission status cannot move directly from ${current.status} to ${parsed.data.status}. Complete the required workflow step first.` }, { status: 409 });
+      if (!transitions[current.status as AdmissionStatus]?.includes(parsed.data.status as AdmissionStatus)) return NextResponse.json({ error: `Admission status cannot move directly from ${current.status} to ${parsed.data.status}. Use the corresponding workflow action.` }, { status: 409 });
     }
     const application = await prisma.application.update({ where: { id }, data: parsed.data });
     return NextResponse.json(application);
