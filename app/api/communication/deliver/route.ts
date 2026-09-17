@@ -24,7 +24,7 @@ async function resolveRecipients(audience: string): Promise<Recipient[]> {
   if (audience === "ALL" || audience === "STUDENTS") {
     const students = await prisma.$queryRawUnsafe<Recipient[]>(`
       SELECT e."id" AS "recipientRef", a."studentName" AS "recipientName",
-             a."guardianEmail" AS "email", a."guardianPhone" AS "phone"
+             NULL::text AS "email", NULL::text AS "phone"
       FROM "Enrollment" e
       JOIN "Application" a ON a."id"=e."applicationId"
       WHERE lower(e."status") IN ('active','enrolled')
