@@ -1,0 +1,1 @@
+export default function AcademicStructure(){return <main className="container"><h1>Academic Structure</h1><p>Configure academic years, terms, grades, sections, subjects and class teachers.</p></main>;}
