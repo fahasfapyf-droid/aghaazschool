@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser, roleAllowed } from "@/lib/auth";
 import { requestAuditContext, writeAuditLog } from "@/lib/audit";
+import { prisma } from "@/lib/prisma";
 import { generateGrNumber, getCustomFieldDefinitions, saveCustomValues } from "@/lib/student-registry";
 import type { Gender, UserRole } from "@prisma/client";
 
