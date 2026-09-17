@@ -7,6 +7,7 @@ const roleRules: Array<[string, string[]]> = [
   ["/admissions", ["SUPER_ADMIN", "ADMIN", "RECEPTIONIST"]],
   ["/fees", ["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"]],
   ["/finance", ["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"]],
+  ["/academic-structure", ["SUPER_ADMIN", "ADMIN"]],
   ["/attendance", ["SUPER_ADMIN", "ADMIN", "TEACHER"]],
   ["/examinations", ["SUPER_ADMIN", "ADMIN", "TEACHER"]],
   ["/results", ["SUPER_ADMIN", "ADMIN", "TEACHER"]],
@@ -23,6 +24,7 @@ const roleRules: Array<[string, string[]]> = [
   ["/api/admissions", ["SUPER_ADMIN", "ADMIN", "RECEPTIONIST"]],
   ["/api/fees", ["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"]],
   ["/api/finance", ["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"]],
+  ["/api/academic-structure", ["SUPER_ADMIN", "ADMIN", "TEACHER"]],
   ["/api/attendance", ["SUPER_ADMIN", "ADMIN", "TEACHER"]],
   ["/api/examinations", ["SUPER_ADMIN", "ADMIN", "TEACHER"]],
   ["/api/results", ["SUPER_ADMIN", "ADMIN", "TEACHER"]],
@@ -37,39 +39,7 @@ const roleRules: Array<[string, string[]]> = [
   ["/api/settings", ["SUPER_ADMIN", "ADMIN"]],
   ["/api/dashboard", ["SUPER_ADMIN", "ADMIN", "TEACHER", "ACCOUNTANT", "RECEPTIONIST"]],
 ];
-
-function requiredRoles(pathname: string) {
-  for (const [prefix, roles] of roleRules) if (pathname === prefix || pathname.startsWith(`${prefix}/`)) return roles;
-  return null;
-}
-
-function secureResponse(response: NextResponse, pathname: string) {
-  response.headers.set("X-Content-Type-Options", "nosniff");
-  response.headers.set("X-Frame-Options", "DENY");
-  response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
-  response.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
-  response.headers.set("X-DNS-Prefetch-Control", "off");
-  if (pathname.startsWith("/api/")) response.headers.set("Cache-Control", "no-store, max-age=0");
-  if (process.env.NODE_ENV === "production") response.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
-  return response;
-}
-
-export async function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl;
-  if (pathname.startsWith("/_next") || pathname === "/favicon.ico") return NextResponse.next();
-  if (publicPaths.has(pathname)) return secureResponse(NextResponse.next(), pathname);
-  const session = await verifySessionTokenEdge(request.cookies.get(SESSION_COOKIE)?.value);
-  if (!session) {
-    if (pathname.startsWith("/api/")) return secureResponse(NextResponse.json({ error: "Authentication required." }, { status: 401 }), pathname);
-    const login = new URL("/login", request.url); login.searchParams.set("next", pathname);
-    return secureResponse(NextResponse.redirect(login), pathname);
-  }
-  const roles = requiredRoles(pathname);
-  if (roles && !roles.includes(session.role)) {
-    if (pathname.startsWith("/api/")) return secureResponse(NextResponse.json({ error: "You do not have permission to access this resource." }, { status: 403 }), pathname);
-    return secureResponse(NextResponse.redirect(new URL("/", request.url)), pathname);
-  }
-  return secureResponse(NextResponse.next(), pathname);
-}
-
+function requiredRoles(pathname: string) { for (const [prefix, roles] of roleRules) if (pathname === prefix || pathname.startsWith(`${prefix}/`)) return roles; return null; }
+function secureResponse(response: NextResponse, pathname: string) { response.headers.set("X-Content-Type-Options", "nosniff"); response.headers.set("X-Frame-Options", "DENY"); response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin"); response.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()"); response.headers.set("X-DNS-Prefetch-Control", "off"); if (pathname.startsWith("/api/")) response.headers.set("Cache-Control", "no-store, max-age=0"); if (process.env.NODE_ENV === "production") response.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains"); return response; }
+export async function middleware(request: NextRequest) { const { pathname } = request.nextUrl; if (pathname.startsWith("/_next") || pathname === "/favicon.ico") return NextResponse.next(); if (publicPaths.has(pathname)) return secureResponse(NextResponse.next(), pathname); const session = await verifySessionTokenEdge(request.cookies.get(SESSION_COOKIE)?.value); if (!session) { if (pathname.startsWith("/api/")) return secureResponse(NextResponse.json({ error: "Authentication required." }, { status: 401 }), pathname); const login = new URL("/login", request.url); login.searchParams.set("next", pathname); return secureResponse(NextResponse.redirect(login), pathname); } const roles = requiredRoles(pathname); if (roles && !roles.includes(session.role)) { if (pathname.startsWith("/api/")) return secureResponse(NextResponse.json({ error: "You do not have permission to access this resource." }, { status: 403 }), pathname); return secureResponse(NextResponse.redirect(new URL("/", request.url)), pathname); } return secureResponse(NextResponse.next(), pathname); }
 export const config = { matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"] };
