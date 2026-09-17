@@ -12,6 +12,14 @@ async function authorize() {
   return user;
 }
 
+async function linkedStaff(userIds: string[]) {
+  if (!userIds.length) return new Map<string, { id: string; employeeNumber: string; name: string; staffType: string }>();
+  const rows = await prisma.$queryRawUnsafe<Array<{ userId: string; id: string; employeeNumber: string; name: string; staffType: string }>>(
+    `SELECT "userId","id","employeeNumber","name","staffType" FROM "Staff" WHERE "userId" = ANY($1::text[])`, userIds,
+  );
+  return new Map(rows.map(row => [row.userId, row]));
+}
+
 export async function GET() {
   try {
     await authorize();
@@ -19,7 +27,8 @@ export async function GET() {
       orderBy: [{ active: "desc" }, { name: "asc" }],
       select: { id: true, name: true, email: true, role: true, active: true, createdAt: true, updatedAt: true },
     });
-    return NextResponse.json({ users });
+    const staff = await linkedStaff(users.map(user => user.id));
+    return NextResponse.json({ users: users.map(user => ({ ...user, linkedStaff: staff.get(user.id) ?? null })) });
   } catch (error) {
     const status = error instanceof Error && error.message === "FORBIDDEN" ? 403 : 401;
     return NextResponse.json({ error: status === 403 ? "Administrator access required." : "Authentication required." }, { status });
@@ -35,6 +44,7 @@ export async function POST(request: NextRequest) {
     const email = String(body.email ?? "").trim().toLowerCase();
     const password = String(body.password ?? "");
     const role = String(body.role ?? "RECEPTIONIST") as UserRole;
+    const staffId = body.staffId === undefined || body.staffId === null || body.staffId === "" ? null : String(body.staffId);
     if (name.length < 2 || name.length > 100) return NextResponse.json({ error: "Name must be 2–100 characters." }, { status: 400 });
     if (!/^\S+@\S+\.\S+$/.test(email)) return NextResponse.json({ error: "Enter a valid email address." }, { status: 400 });
     if (password.length < 8) return NextResponse.json({ error: "Password must be at least 8 characters." }, { status: 400 });
@@ -42,8 +52,17 @@ export async function POST(request: NextRequest) {
     if (actor.role !== "SUPER_ADMIN" && role === "SUPER_ADMIN") return NextResponse.json({ error: "Only a Super Admin can create another Super Admin." }, { status: 403 });
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) return NextResponse.json({ error: "A user with this email already exists." }, { status: 409 });
-    const user = await prisma.user.create({ data: { name, email, role, passwordHash: createPasswordHash(password) }, select: { id: true, name: true, email: true, role: true, active: true } });
-    await writeAuditLog({ userId: actor.id, action: "USER_CREATED", entityType: "User", entityId: user.id, metadata: { role: user.role }, context });
+    if (staffId) {
+      const staff = await prisma.$queryRawUnsafe<Array<{ id: string; userId: string | null }>>(`SELECT "id","userId" FROM "Staff" WHERE "id"=$1 LIMIT 1`, staffId);
+      if (!staff.length) return NextResponse.json({ error: "Staff record not found." }, { status: 404 });
+      if (staff[0].userId) return NextResponse.json({ error: "That staff record is already linked to a user account." }, { status: 409 });
+    }
+    const user = await prisma.$transaction(async tx => {
+      const created = await tx.user.create({ data: { name, email, role, passwordHash: createPasswordHash(password) }, select: { id: true, name: true, email: true, role: true, active: true, updatedAt: true } });
+      if (staffId) await tx.$executeRawUnsafe(`UPDATE "Staff" SET "userId"=$1,"updatedAt"=NOW() WHERE "id"=$2`, created.id, staffId);
+      return created;
+    });
+    await writeAuditLog({ userId: actor.id, action: "USER_CREATED", entityType: "User", entityId: user.id, metadata: { role: user.role, staffId }, context });
     return NextResponse.json({ user }, { status: 201 });
   } catch (error) {
     const status = error instanceof Error && error.message === "FORBIDDEN" ? 403 : 401;
