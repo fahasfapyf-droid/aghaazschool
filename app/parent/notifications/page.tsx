@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 
 type Notification = { id: string; title: string; message: string; status: string; createdAt: string; readAt: string | null };
-
 type ParentData = { student: { name: string }; guardian: string; notifications: Notification[] };
 
 export default function ParentNotificationsPage() {
@@ -21,7 +20,8 @@ export default function ParentNotificationsPage() {
   useEffect(() => {
     async function start() {
       try {
-        const token = new URLSearchParams(window.location.search).get("token");
+        const hash = window.location.hash.replace(/^#/, "");
+        const token = hash.startsWith("token=") ? decodeURIComponent(hash.slice(6)) : "";
         if (token) {
           const response = await fetch("/api/parent/session", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) });
           const body = await response.json();
