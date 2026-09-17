@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, roleAllowed } from "@/lib/auth";
 import { requestAuditContext, writeAuditLog } from "@/lib/audit";
+import { queueParentNotification } from "@/lib/communication/events";
 import { z } from "zod";
 
 const schema = z.object({
@@ -63,7 +64,23 @@ export async function POST(request: NextRequest) {
     }
 
     const result = await prisma.$transaction(parsed.data.records.map(r => prisma.attendance.upsert({ where: { studentId_date: { studentId: r.studentId, date: range.start } }, update: { status: r.status, remarks: r.remarks }, create: { studentId: r.studentId, date: range.start, status: r.status, remarks: r.remarks } })));
-    await writeAuditLog({ userId: user.id, action: "ATTENDANCE_SAVED", entityType: "Attendance", metadata: { date: range.start.toISOString().slice(0, 10), recordCount: result.length, counts: parsed.data.records.reduce<Record<string, number>>((counts, record) => { counts[record.status] = (counts[record.status] ?? 0) + 1; return counts; }, {}) }, context: requestAuditContext(request) });
-    return NextResponse.json(result, { status: 201 });
+
+    const absentIds = parsed.data.records.filter(r => r.status === "ABSENT").map(r => r.studentId);
+    const absentNotifications = await Promise.all(absentIds.map(async enrollmentId => {
+      const student = await prisma.enrollment.findUnique({ where: { id: enrollmentId }, include: { application: true } });
+      if (!student) return { created: false, reason: "ENROLLMENT_NOT_FOUND" };
+      const studentName = student.application.studentName;
+      return queueParentNotification({
+        eventKey: "ATTENDANCE_ABSENT",
+        sourceRef: `${enrollmentId}:${range.start.toISOString().slice(0, 10)}`,
+        enrollmentId,
+        title: `Absence recorded: ${studentName}`,
+        message: `${studentName} was marked absent on ${range.start.toLocaleDateString("en-GB")}. Please contact the school if this absence was expected.`,
+        createdBy: user.id,
+      });
+    }));
+
+    await writeAuditLog({ userId: user.id, action: "ATTENDANCE_SAVED", entityType: "Attendance", metadata: { date: range.start.toISOString().slice(0, 10), recordCount: result.length, counts: parsed.data.records.reduce<Record<string, number>>((counts, record) => { counts[record.status] = (counts[record.status] ?? 0) + 1; return counts; }, {}), absentNotifications: absentNotifications.length }, context: requestAuditContext(request) });
+    return NextResponse.json({ records: result, notifications: { attempted: absentNotifications.length, created: absentNotifications.filter(item => item.created).length } }, { status: 201 });
   } catch (error) { console.error(error); return NextResponse.json({ error: "Unable to save attendance" }, { status: 500 }); }
 }
