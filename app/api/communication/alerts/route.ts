@@ -8,6 +8,7 @@ function authorized(request: NextRequest) {
 }
 
 const WINDOW_MS = 10 * 60 * 1000;
+const DUE_SOON_MS = 24 * 60 * 60 * 1000;
 
 export async function GET(request: NextRequest) {
   if (!authorized(request)) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
@@ -15,7 +16,8 @@ export async function GET(request: NextRequest) {
   try {
     const now = new Date();
     const recent = new Date(now.getTime() - WINDOW_MS);
-    const created: Record<string, number> = { fees: 0, homework: 0, results: 0, admissions: 0 };
+    const dueSoon = new Date(now.getTime() + DUE_SOON_MS);
+    const created: Record<string, number> = { fees: 0, homework: 0, homeworkDueSoon: 0, results: 0, admissions: 0 };
 
     const overdueFees = await prisma.feeInvoice.findMany({
       where: { dueDate: { lt: now }, NOT: { status: "PAID" } },
@@ -56,8 +58,32 @@ export async function GET(request: NextRequest) {
       if (result.created) created.homework += 1;
     }
 
+    const dueSoonHomework = await prisma.homeworkSubmission.findMany({
+      where: {
+        status: "NOT_SUBMITTED",
+        homework: { dueDate: { gte: now, lte: dueSoon }, status: { not: "DRAFT" } },
+      },
+      include: { homework: true, student: { include: { application: true } } },
+      orderBy: { homework: { dueDate: "asc" } },
+      take: 100,
+    });
+    for (const submission of dueSoonHomework) {
+      const studentName = submission.student.application.studentName;
+      const result = await queueParentNotification({
+        eventKey: "HOMEWORK_DUE_SOON",
+        sourceRef: submission.id,
+        enrollmentId: submission.studentId,
+        title: `Homework due soon: ${studentName}`,
+        message: `${studentName} has "${submission.homework.title}" due on ${submission.homework.dueDate.toLocaleDateString("en-GB")}. Please help ensure it is submitted on time.`,
+      });
+      if (result.created) created.homeworkDueSoon += 1;
+    }
+
     const recentResults = await prisma.result.findMany({
-      where: { updatedAt: { gte: recent } },
+      where: {
+        updatedAt: { gte: recent },
+        paper: { exam: { status: "PUBLISHED" } },
+      },
       include: { paper: { include: { exam: true } }, student: { include: { application: true } } },
       orderBy: { updatedAt: "asc" },
       take: 100,
@@ -94,7 +120,7 @@ export async function GET(request: NextRequest) {
       if (result.created) created.admissions += 1;
     }
 
-    return NextResponse.json({ ok: true, windowMinutes: 10, created });
+    return NextResponse.json({ ok: true, windowMinutes: 10, homeworkDueSoonHours: 24, created });
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: "Unable to process automated communication alerts." }, { status: 500 });
