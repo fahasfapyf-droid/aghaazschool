@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { FormEvent } from "react";
 
 type LeaveRequest = { id: string; startDate: string; endDate: string; reason: string; status: string; reviewRemarks?: string | null; reviewedAt?: string | null; createdAt: string };
 type Dashboard = {
@@ -51,7 +52,7 @@ export default function ParentDashboardPage() {
     void start();
   }, []);
 
-  async function submitLeave(event: React.FormEvent) {
+  async function submitLeave(event: FormEvent) {
     event.preventDefault();
     setSubmitting(true); setRequestMessage("");
     try {
