@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, roleAllowed } from "@/lib/auth";
@@ -6,86 +7,14 @@ import { requestAuditContext, writeAuditLog } from "@/lib/audit";
 import type { UserRole } from "@prisma/client";
 
 const TIMETABLE_ROLES: UserRole[] = ["SUPER_ADMIN", "ADMIN", "TEACHER"];
-
-async function authorized() {
-  const user = await getCurrentUser();
-  if (!user) return { response: NextResponse.json({ error: "Authentication required." }, { status: 401 }) };
-  if (!roleAllowed(user.role, TIMETABLE_ROLES)) return { response: NextResponse.json({ error: "You do not have permission to manage the timetable." }, { status: 403 }) };
-  return { user };
-}
-
-const entrySchema = z.object({
-  dayOfWeek: z.enum(["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"]),
-  className: z.string().trim().min(1).max(80),
-  section: z.string().trim().max(20).optional().nullable(),
-  subject: z.string().trim().min(1).max(100),
-  teacher: z.string().trim().min(1).max(100),
-  room: z.string().trim().max(50).optional().nullable(),
-  startTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
-  endTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
-  period: z.coerce.number().int().min(1).max(20),
-});
-
-export async function GET(request: NextRequest) {
-  const auth = await authorized();
-  if (auth.response) return auth.response;
-  const params = new URL(request.url).searchParams;
-  const className = params.get("class")?.trim();
-  const dayOfWeek = params.get("day")?.trim();
-  const entries = await prisma.timetableEntry.findMany({ where: { ...(className ? { className: { equals: className, mode: "insensitive" } } : {}), ...(dayOfWeek ? { dayOfWeek: dayOfWeek as never } : {}) }, orderBy: [{ dayOfWeek: "asc" }, { period: "asc" }] });
-  return NextResponse.json(entries);
-}
-
-export async function POST(request: NextRequest) {
-  const auth = await authorized();
-  if (auth.response) return auth.response;
-  const context = requestAuditContext(request);
-  try {
-    const body = entrySchema.parse(await request.json());
-    if (body.endTime <= body.startTime) return NextResponse.json({ error: "End time must be after start time." }, { status: 400 });
-    const entry = await prisma.timetableEntry.create({ data: body });
-    await writeAuditLog({ userId: auth.user.id, action: "TIMETABLE_ENTRY_CREATED", entityType: "TimetableEntry", entityId: entry.id, metadata: { className: entry.className, section: entry.section, subject: entry.subject, dayOfWeek: entry.dayOfWeek, period: entry.period }, context });
-    return NextResponse.json(entry, { status: 201 });
-  } catch (error) {
-    if (error instanceof z.ZodError) return NextResponse.json({ error: "Invalid timetable entry.", details: error.flatten() }, { status: 400 });
-    return NextResponse.json({ error: "Unable to create timetable entry." }, { status: 500 });
-  }
-}
-
-export async function PATCH(request: NextRequest) {
-  const auth = await authorized();
-  if (auth.response) return auth.response;
-  const context = requestAuditContext(request);
-  try {
-    const id = request.nextUrl.searchParams.get("id");
-    if (!id) return NextResponse.json({ error: "Entry id is required." }, { status: 400 });
-    const body = entrySchema.partial().parse(await request.json());
-    const existing = await prisma.timetableEntry.findUnique({ where: { id } });
-    if (!existing) return NextResponse.json({ error: "Timetable entry not found." }, { status: 404 });
-    const merged = { ...existing, ...body };
-    if (merged.endTime <= merged.startTime) return NextResponse.json({ error: "End time must be after start time." }, { status: 400 });
-    const entry = await prisma.timetableEntry.update({ where: { id }, data: body });
-    await writeAuditLog({ userId: auth.user.id, action: "TIMETABLE_ENTRY_UPDATED", entityType: "TimetableEntry", entityId: entry.id, metadata: { changedFields: Object.keys(body) }, context });
-    return NextResponse.json(entry);
-  } catch (error) {
-    if (error instanceof z.ZodError) return NextResponse.json({ error: "Invalid timetable entry." }, { status: 400 });
-    return NextResponse.json({ error: "Unable to update timetable entry." }, { status: 500 });
-  }
-}
-
-export async function DELETE(request: NextRequest) {
-  const auth = await authorized();
-  if (auth.response) return auth.response;
-  const context = requestAuditContext(request);
-  const id = request.nextUrl.searchParams.get("id");
-  if (!id) return NextResponse.json({ error: "Entry id is required." }, { status: 400 });
-  try {
-    const existing = await prisma.timetableEntry.findUnique({ where: { id } });
-    if (!existing) return NextResponse.json({ error: "Timetable entry not found." }, { status: 404 });
-    await prisma.timetableEntry.delete({ where: { id } });
-    await writeAuditLog({ userId: auth.user.id, action: "TIMETABLE_ENTRY_DELETED", entityType: "TimetableEntry", entityId: id, metadata: { className: existing.className, section: existing.section, subject: existing.subject, dayOfWeek: existing.dayOfWeek, period: existing.period }, context });
-    return NextResponse.json({ success: true });
-  } catch {
-    return NextResponse.json({ error: "Unable to delete timetable entry." }, { status: 500 });
-  }
-}
+const DAYS = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"] as const;
+async function authorized(){const user=await getCurrentUser();if(!user)return {response:NextResponse.json({error:"Authentication required."},{status:401})};if(!roleAllowed(user.role,TIMETABLE_ROLES))return {response:NextResponse.json({error:"You do not have permission to manage the timetable."},{status:403})};return {user};}
+const entrySchema=z.object({dayOfWeek:z.enum(DAYS),academicSessionId:z.string().min(1),academicGradeId:z.string().min(1),academicSectionId:z.string().min(1),academicSubjectId:z.string().min(1),teacherStaffId:z.string().min(1),room:z.string().trim().max(50).optional().nullable(),startTime:z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),endTime:z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),period:z.coerce.number().int().min(1).max(20)});
+const patchSchema=entrySchema.partial();
+type Placement={sessionName:string;gradeName:string;sectionName:string;subjectName:string;teacherName:string};
+async function validatePlacement(input:z.infer<typeof entrySchema>){const rows=await prisma.$queryRawUnsafe<Placement[]>(`SELECT s."name" AS "sessionName",g."name" AS "gradeName",sec."name" AS "sectionName",sub."name" AS "subjectName",st."name" AS "teacherName" FROM "AcademicSession" s JOIN "AcademicGrade" g ON g."sessionId"=s."id" AND g."id"=$2 AND g."active"=true JOIN "AcademicSection" sec ON sec."gradeId"=g."id" AND sec."id"=$3 AND sec."active"=true JOIN "AcademicSubject" sub ON sub."id"=$4 AND sub."active"=true JOIN "Staff" st ON st."id"=$5 AND st."active"=true AND st."staffType"='TEACHER' WHERE s."id"=$1 LIMIT 1`,input.academicSessionId,input.academicGradeId,input.academicSectionId,input.academicSubjectId,input.teacherStaffId);return rows[0]?{placement:rows[0]}:{error:"Select an active, matching academic year, grade, section, subject and teacher."};}
+async function conflicts(input:z.infer<typeof entrySchema>,excludeId?:string){return prisma.$queryRawUnsafe<Array<{kind:string;label:string}>>(`SELECT 'CLASS' AS "kind",t."className"||COALESCE(' / '||t."section",'')||' at '||t."startTime" AS "label" FROM "TimetableEntry" t WHERE t."dayOfWeek"=$1 AND t."academicSectionId"=$2 AND t."startTime"<$4 AND t."endTime">$3 AND ($5::text IS NULL OR t."id"<>$5) UNION ALL SELECT 'TEACHER',t."teacher"||' at '||t."startTime" FROM "TimetableEntry" t WHERE t."dayOfWeek"=$1 AND t."teacherStaffId"=$6 AND t."startTime"<$4 AND t."endTime">$3 AND ($5::text IS NULL OR t."id"<>$5) UNION ALL SELECT 'ROOM',COALESCE(t."room",'')||' at '||t."startTime" FROM "TimetableEntry" t WHERE t."dayOfWeek"=$1 AND NULLIF(trim(t."room"),'') IS NOT NULL AND lower(trim(t."room"))=lower(trim($7)) AND t."startTime"<$4 AND t."endTime">$3 AND ($5::text IS NULL OR t."id"<>$5) LIMIT 3`,input.dayOfWeek,input.academicSectionId,input.startTime,input.endTime,excludeId??null,input.teacherStaffId,input.room??"");}
+export async function GET(request:NextRequest){const auth=await authorized();if(auth.response)return auth.response;const p=new URL(request.url).searchParams;const className=p.get("class")?.trim()||null,day=p.get("day")?.trim()||null,sessionId=p.get("sessionId")?.trim()||null,teacherId=p.get("teacherStaffId")?.trim()||null;const rows=await prisma.$queryRawUnsafe(`SELECT t."id",t."dayOfWeek",t."academicSessionId",t."academicGradeId",t."academicSectionId",t."academicSubjectId",t."teacherStaffId",t."className",t."section",t."subject",t."teacher",t."room",t."startTime",t."endTime",t."period",s."name" AS "sessionName",g."name" AS "gradeName",sec."name" AS "sectionName",sub."name" AS "subjectName",st."name" AS "teacherName" FROM "TimetableEntry" t LEFT JOIN "AcademicSession" s ON s."id"=t."academicSessionId" LEFT JOIN "AcademicGrade" g ON g."id"=t."academicGradeId" LEFT JOIN "AcademicSection" sec ON sec."id"=t."academicSectionId" LEFT JOIN "AcademicSubject" sub ON sub."id"=t."academicSubjectId" LEFT JOIN "Staff" st ON st."id"=t."teacherStaffId" WHERE ($1::text IS NULL OR t."className" ILIKE '%'||$1||'%') AND ($2::text IS NULL OR t."dayOfWeek"::text=$2) AND ($3::text IS NULL OR t."academicSessionId"=$3) AND ($4::text IS NULL OR t."teacherStaffId"=$4) ORDER BY array_position(ARRAY['MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY','SUNDAY']::text[],t."dayOfWeek"::text),t."period",t."startTime"`,className,day,sessionId,teacherId);return NextResponse.json(rows);}
+export async function POST(request:NextRequest){const auth=await authorized();if(auth.response)return auth.response;const context=requestAuditContext(request);try{const body=entrySchema.parse(await request.json());if(body.endTime<=body.startTime)return NextResponse.json({error:"End time must be after start time."},{status:400});const placement=await validatePlacement(body);if("error" in placement)return NextResponse.json({error:placement.error},{status:400});const clash=await conflicts(body);if(clash.length)return NextResponse.json({error:`Timetable conflict: ${clash.map(x=>`${x.kind} (${x.label})`).join(", ")}.`},{status:409});const id=randomUUID(),p=placement.placement;await prisma.$executeRawUnsafe(`INSERT INTO "TimetableEntry" ("id","dayOfWeek","className","section","subject","teacher","room","startTime","endTime","period","academicSessionId","academicGradeId","academicSectionId","academicSubjectId","teacherStaffId","createdAt","updatedAt") VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`,id,body.dayOfWeek,p.gradeName,p.sectionName,p.subjectName,p.teacherName,body.room??null,body.startTime,body.endTime,body.period,body.academicSessionId,body.academicGradeId,body.academicSectionId,body.academicSubjectId,body.teacherStaffId);await writeAuditLog({userId:auth.user.id,action:"TIMETABLE_ENTRY_CREATED",entityType:"TimetableEntry",entityId:id,metadata:{academicSessionId:body.academicSessionId,academicSectionId:body.academicSectionId,academicSubjectId:body.academicSubjectId,teacherStaffId:body.teacherStaffId,dayOfWeek:body.dayOfWeek,period:body.period},context});return NextResponse.json({id},{status:201});}catch(error){if(error instanceof z.ZodError)return NextResponse.json({error:"Invalid timetable entry.",details:error.flatten()},{status:400});console.error(error);return NextResponse.json({error:"Unable to create timetable entry."},{status:500});}}
+export async function PATCH(request:NextRequest){const auth=await authorized();if(auth.response)return auth.response;const context=requestAuditContext(request);try{const id=request.nextUrl.searchParams.get("id");if(!id)return NextResponse.json({error:"Entry id is required."},{status:400});const body=patchSchema.parse(await request.json());const old=await prisma.$queryRawUnsafe<Array<Record<string,unknown>>>(`SELECT * FROM "TimetableEntry" WHERE "id"=$1`,id);if(!old[0])return NextResponse.json({error:"Timetable entry not found."},{status:404});const r=old[0];const full=entrySchema.parse({dayOfWeek:body.dayOfWeek??r.dayOfWeek,academicSessionId:body.academicSessionId??r.academicSessionId,academicGradeId:body.academicGradeId??r.academicGradeId,academicSectionId:body.academicSectionId??r.academicSectionId,academicSubjectId:body.academicSubjectId??r.academicSubjectId,teacherStaffId:body.teacherStaffId??r.teacherStaffId,room:body.room===undefined?r.room:body.room,startTime:body.startTime??r.startTime,endTime:body.endTime??r.endTime,period:body.period??r.period});if(full.endTime<=full.startTime)return NextResponse.json({error:"End time must be after start time."},{status:400});const placement=await validatePlacement(full);if("error" in placement)return NextResponse.json({error:placement.error},{status:400});const clash=await conflicts(full,id);if(clash.length)return NextResponse.json({error:`Timetable conflict: ${clash.map(x=>`${x.kind} (${x.label})`).join(", ")}.`},{status:409});const p=placement.placement;await prisma.$executeRawUnsafe(`UPDATE "TimetableEntry" SET "dayOfWeek"=$2,"className"=$3,"section"=$4,"subject"=$5,"teacher"=$6,"room"=$7,"startTime"=$8,"endTime"=$9,"period"=$10,"academicSessionId"=$11,"academicGradeId"=$12,"academicSectionId"=$13,"academicSubjectId"=$14,"teacherStaffId"=$15,"updatedAt"=CURRENT_TIMESTAMP WHERE "id"=$1`,id,full.dayOfWeek,p.gradeName,p.sectionName,p.subjectName,p.teacherName,full.room??null,full.startTime,full.endTime,full.period,full.academicSessionId,full.academicGradeId,full.academicSectionId,full.academicSubjectId,full.teacherStaffId);await writeAuditLog({userId:auth.user.id,action:"TIMETABLE_ENTRY_UPDATED",entityType:"TimetableEntry",entityId:id,metadata:{changedFields:Object.keys(body)},context});return NextResponse.json({id});}catch(error){if(error instanceof z.ZodError)return NextResponse.json({error:"Invalid timetable entry."},{status:400});console.error(error);return NextResponse.json({error:"Unable to update timetable entry."},{status:500});}}
+export async function DELETE(request:NextRequest){const auth=await authorized();if(auth.response)return auth.response;const context=requestAuditContext(request);const id=request.nextUrl.searchParams.get("id");if(!id)return NextResponse.json({error:"Entry id is required."},{status:400});try{const old=await prisma.$queryRawUnsafe<Array<Record<string,unknown>>>(`SELECT "className","section","subject","dayOfWeek","period" FROM "TimetableEntry" WHERE "id"=$1`,id);if(!old[0])return NextResponse.json({error:"Timetable entry not found."},{status:404});await prisma.$executeRawUnsafe(`DELETE FROM "TimetableEntry" WHERE "id"=$1`,id);await writeAuditLog({userId:auth.user.id,action:"TIMETABLE_ENTRY_DELETED",entityType:"TimetableEntry",entityId:id,metadata:old[0],context});return NextResponse.json({success:true});}catch{return NextResponse.json({error:"Unable to delete timetable entry."},{status:500});}}
