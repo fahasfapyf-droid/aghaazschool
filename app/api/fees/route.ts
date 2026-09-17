@@ -101,10 +101,27 @@ export async function POST(request: NextRequest) {
 
     const parsed = invoiceSchema.safeParse(body); if (!parsed.success) return NextResponse.json({ error: "Invalid invoice", details: parsed.error.flatten() }, { status: 400 });
     const dueDate = new Date(parsed.data.dueDate); if (Number.isNaN(dueDate.getTime())) return NextResponse.json({ error: "Invalid due date." }, { status: 400 });
-    const student = await prisma.enrollment.findUnique({ where: { id: parsed.data.studentId } }); if (!student) return NextResponse.json({ error: "Student enrollment not found." }, { status: 404 });
+    const student = await prisma.enrollment.findUnique({ where: { id: parsed.data.studentId }, include: { application: true } }); if (!student) return NextResponse.json({ error: "Student enrollment not found." }, { status: 404 });
     const netAmount = parsed.data.amount - parsed.data.discount;
     const invoice = await prisma.feeInvoice.create({ data: { invoiceNumber: `INV-${new Date().getFullYear()}-${randomUUID()}`, studentId: parsed.data.studentId, feeType: parsed.data.feeType, amount: parsed.data.amount, discount: parsed.data.discount, netAmount, dueDate } });
     await writeAuditLog({ userId: user.id, action: "FEE_INVOICE_CREATED", entityType: "FeeInvoice", entityId: invoice.id, metadata: { studentId: parsed.data.studentId, feeType: parsed.data.feeType, amount: parsed.data.amount, discount: parsed.data.discount, netAmount, dueDate: dueDate.toISOString() }, context });
-    return NextResponse.json(invoice, { status: 201 });
+
+    let notification: { created: boolean; reason?: string; channelCount?: number } = { created: false, reason: "NOT_ATTEMPTED" };
+    try {
+      const studentName = student.application?.studentName?.trim() || "Student";
+      notification = await queueParentNotification({
+        eventKey: "FEE_INVOICE_ISSUED",
+        sourceRef: invoice.id,
+        enrollmentId: student.id,
+        title: `Fee invoice issued: ${studentName}`,
+        message: `A ${parsed.data.feeType} fee invoice of PKR ${netAmount.toLocaleString()} was issued for ${studentName}. Due date: ${dueDate.toLocaleDateString()}. Invoice ${invoice.invoiceNumber}.`,
+        createdBy: user.id,
+      });
+    } catch (error) {
+      console.error("Fee invoice notification failed", error);
+      notification = { created: false, reason: "NOTIFICATION_ERROR" };
+    }
+
+    return NextResponse.json({ ...invoice, notification }, { status: 201 });
   } catch (error) { console.error(error); return NextResponse.json({ error: "Unable to save fee record" }, { status: 500 }); }
 }
