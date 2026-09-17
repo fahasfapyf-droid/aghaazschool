@@ -141,7 +141,106 @@ model AcademicSession {
   exams Exam[]
   reportCardSubjects ReportCardSubject[]
   reportCardReleases ReportCardRelease[]
+  terms AcademicTermRecord[]
+  grades AcademicGrade[]
+  enrollments Enrollment[] @relation("EnrollmentAcademicSession")
   createdAt DateTime @default(now())
+}
+
+model AcademicTermRecord {
+  id String @id @default(cuid())
+  sessionId String
+  name String
+  termKey String
+  startDate DateTime
+  endDate DateTime
+  status String @default("PLANNED")
+  session AcademicSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  classSubjects AcademicClassSubject[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([sessionId, termKey])
+  @@index([sessionId, status])
+}
+
+model AcademicGrade {
+  id String @id @default(cuid())
+  sessionId String
+  name String
+  code String
+  displayOrder Int @default(0)
+  active Boolean @default(true)
+  session AcademicSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sections AcademicSection[]
+  classSubjects AcademicClassSubject[]
+  enrollments Enrollment[] @relation("EnrollmentAcademicGrade")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([sessionId, code])
+  @@index([sessionId, displayOrder])
+}
+
+model AcademicSection {
+  id String @id @default(cuid())
+  gradeId String
+  name String
+  capacity Int?
+  classTeacherStaffId String?
+  active Boolean @default(true)
+  grade AcademicGrade @relation(fields: [gradeId], references: [id], onDelete: Cascade)
+  classTeacherStaff Staff? @relation("AcademicSectionClassTeacher", fields: [classTeacherStaffId], references: [id], onDelete: SetNull)
+  classTeachers AcademicClassTeacher[]
+  enrollments Enrollment[] @relation("EnrollmentAcademicSection")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([gradeId, name])
+  @@index([gradeId, active])
+}
+
+model AcademicSubject {
+  id String @id @default(cuid())
+  code String @unique
+  name String
+  shortName String?
+  active Boolean @default(true)
+  classSubjects AcademicClassSubject[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([active, name])
+}
+
+model AcademicClassSubject {
+  id String @id @default(cuid())
+  gradeId String
+  subjectId String
+  termId String?
+  teacherStaffId String?
+  maxMarks Decimal? @db.Decimal(8,2)
+  displayOrder Int @default(0)
+  active Boolean @default(true)
+  grade AcademicGrade @relation(fields: [gradeId], references: [id], onDelete: Cascade)
+  subject AcademicSubject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  term AcademicTermRecord? @relation(fields: [termId], references: [id], onDelete: Cascade)
+  teacherStaff Staff? @relation("AcademicClassSubjectTeacher", fields: [teacherStaffId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([gradeId, subjectId, termId])
+  @@index([gradeId, termId, displayOrder])
+}
+
+model AcademicClassTeacher {
+  id String @id @default(cuid())
+  sectionId String
+  staffId String
+  startDate DateTime @default(now())
+  endDate DateTime?
+  active Boolean @default(true)
+  section AcademicSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  staff Staff @relation("AcademicClassTeacherStaff", fields: [staffId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([sectionId, active])
+  @@index([staffId, active])
 }
 
 model AdmissionEnquiry {
@@ -245,15 +344,48 @@ model Enrollment {
   admissionNumber String @unique
   className String
   section String?
+  academicSessionId String?
+  academicGradeId String?
+  academicSectionId String?
   enrolledAt DateTime @default(now())
   status String @default("active")
   application Application @relation(fields: [applicationId], references: [id])
+  academicSession AcademicSession? @relation("EnrollmentAcademicSession", fields: [academicSessionId], references: [id], onDelete: SetNull)
+  academicGrade AcademicGrade? @relation("EnrollmentAcademicGrade", fields: [academicGradeId], references: [id], onDelete: SetNull)
+  academicSection AcademicSection? @relation("EnrollmentAcademicSection", fields: [academicSectionId], references: [id], onDelete: SetNull)
   attendance Attendance[]
   feeInvoices FeeInvoice[]
   results Result[]
   leaveRequests LeaveRequest[]
   homeworkSubmissions HomeworkSubmission[]
   reportCardReleases ReportCardRelease[]
+  history EnrollmentHistory[]
+  @@index([academicSessionId])
+  @@index([academicGradeId])
+  @@index([academicSectionId])
+}
+
+model EnrollmentHistory {
+  id String @id @default(cuid())
+  enrollmentId String
+  action String
+  academicSessionId String?
+  academicSessionName String?
+  academicGradeId String?
+  academicGradeName String?
+  academicSectionId String?
+  academicSectionName String?
+  className String
+  section String?
+  status String
+  effectiveAt DateTime @default(now())
+  note String?
+  createdBy String?
+  createdAt DateTime @default(now())
+  enrollment Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  @@index([enrollmentId, effectiveAt])
+  @@index([action, effectiveAt])
+  @@index([academicSessionId])
 }
 
 model Attendance {
@@ -350,6 +482,9 @@ model Staff {
   active Boolean @default(true)
   notes String?
   payrollRecords PayrollRecord[]
+  academicSectionsAsClassTeacher AcademicSection[] @relation("AcademicSectionClassTeacher")
+  academicClassSubjects AcademicClassSubject[] @relation("AcademicClassSubjectTeacher")
+  academicClassTeachers AcademicClassTeacher[] @relation("AcademicClassTeacherStaff")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   @@index([staffType, active])
