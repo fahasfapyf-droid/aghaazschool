@@ -63,7 +63,7 @@ export async function sendDelivery(payload: ProviderPayload): Promise<ProviderRe
     throw new DeliveryProviderError(`${payload.channel} provider is not configured.`);
   }
 
-  if (payload.channel !== "IN_APP" && !process.env.COMMUNICATION_WEBHOOK_SECRET) {
+  if (!process.env.COMMUNICATION_WEBHOOK_SECRET) {
     throw new DeliveryProviderError("Communication webhook secret is not configured.");
   }
 
