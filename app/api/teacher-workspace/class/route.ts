@@ -80,12 +80,11 @@ export async function POST(request: NextRequest) {
     if (!entry[0]) return NextResponse.json({ error: "You can only record notes for an assigned timetable lesson." }, { status: 403 });
     const existing = await prisma.$queryRawUnsafe<Array<{ id: string }>>(`SELECT "id" FROM "TeacherClassNote" WHERE "timetableEntryId"=$1 AND "noteDate"=$2::date LIMIT 1`, body.timetableEntryId, body.noteDate);
     const id = existing[0]?.id ?? randomUUID();
-    await prisma.$executeRawUnsafe(
-      existing[0]
-        ? `UPDATE "TeacherClassNote" SET "topic"=$3,"summary"=$4,"followUp"=$5,"updatedAt"=NOW() WHERE "id"=$1 AND "noteDate"=$2::date`
-        : `INSERT INTO "TeacherClassNote" ("id","timetableEntryId","teacherStaffId","noteDate","topic","summary","followUp","createdAt","updatedAt") VALUES ($1,$2,$6,$3::date,$4,$5,$7,NOW(),NOW())`,
-      ...(existing[0] ? [id, body.noteDate, body.topic, body.summary || null, body.followUp || null] : [id, body.noteDate, body.topic, body.summary || null, body.followUp || null, body.timetableEntryId, body.followUp || null]),
-    );
+    if (existing[0]) {
+      await prisma.$executeRawUnsafe(`UPDATE "TeacherClassNote" SET "topic"=$3,"summary"=$4,"followUp"=$5,"updatedAt"=NOW() WHERE "id"=$1 AND "noteDate"=$2::date`, id, body.noteDate, body.topic, body.summary || null, body.followUp || null);
+    } else {
+      await prisma.$executeRawUnsafe(`INSERT INTO "TeacherClassNote" ("id","timetableEntryId","teacherStaffId","noteDate","topic","summary","followUp","createdAt","updatedAt") VALUES ($1,$2,$3,$4::date,$5,$6,$7,NOW(),NOW())`, id, body.timetableEntryId, teacherId, body.noteDate, body.topic, body.summary || null, body.followUp || null);
+    }
     await writeAuditLog({ userId: auth.user.id, action: existing[0] ? "TEACHER_CLASS_NOTE_UPDATED" : "TEACHER_CLASS_NOTE_CREATED", entityType: "TeacherClassNote", entityId: id, metadata: { timetableEntryId: body.timetableEntryId, noteDate: body.noteDate, topic: body.topic }, context });
     return NextResponse.json({ id, updated: Boolean(existing[0]) }, { status: existing[0] ? 200 : 201 });
   } catch (error) {
