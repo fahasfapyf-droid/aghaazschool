@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
-
-const grade = (percentage: number) => percentage <= 0 ? null : percentage >= 90 ? "A+" : percentage >= 80 ? "A" : percentage >= 70 ? "B+" : percentage >= 60 ? "B" : percentage >= 50 ? "C" : percentage >= 40 ? "D" : "TRY AGAIN";
+import { getGradingBands, resolveGrade } from "@/lib/grading";
 
 type Config = { term: "FIRST" | "SECOND" | "THIRD"; subject: string; maxMarks: unknown; displayOrder: number; section: string | null };
 
@@ -28,11 +27,14 @@ export async function GET(request: NextRequest) {
   const session = await prisma.academicSession.findUnique({ where: { id: sessionId } });
   if (!session) return NextResponse.json({ error: "Academic session not found" }, { status: 404 });
 
-  const rawConfigs = await prisma.reportCardSubject.findMany({
-    where: { sessionId, className, active: true, ...(section ? { OR: [{ section }, { section: null }] } : {}) },
-    select: { term: true, subject: true, maxMarks: true, displayOrder: true, section: true },
-    orderBy: [{ term: "asc" }, { displayOrder: "asc" }, { subject: "asc" }]
-  });
+  const [rawConfigs, gradingBands] = await Promise.all([
+    prisma.reportCardSubject.findMany({
+      where: { sessionId, className, active: true, ...(section ? { OR: [{ section }, { section: null }] } : {}) },
+      select: { term: true, subject: true, maxMarks: true, displayOrder: true, section: true },
+      orderBy: [{ term: "asc" }, { displayOrder: "asc" }, { subject: "asc" }]
+    }),
+    getGradingBands(sessionId)
+  ]);
   const configs = selectConfigurations(rawConfigs as Config[], section);
 
   const exams = await prisma.exam.findMany({
@@ -70,12 +72,14 @@ export async function GET(request: NextRequest) {
       const result = paper?.results.find(item => item.studentId === student.id);
       const marks = result ? (result.components.length ? result.components.reduce((sum, component) => sum + Number(component.marks), 0) : Number(result.marks)) : 0;
       const maxMarks = Number(subject.maxMarks);
-      return { term: subject.term, subject: subject.subject, maxMarks, marks, grade: grade(maxMarks ? marks / maxMarks * 100 : 0), completed: Boolean(result) };
+      const percentage = maxMarks ? marks / maxMarks * 100 : 0;
+      return { term: subject.term, subject: subject.subject, maxMarks, marks, grade: resolveGrade(gradingBands, percentage), completed: Boolean(result) };
     });
     const totalMarks = values.reduce((sum, value) => sum + value.maxMarks, 0);
     const obtainedMarks = values.reduce((sum, value) => sum + value.marks, 0);
     const completedSubjects = values.filter(value => value.completed).length;
-    return { id: student.id, name: student.application.studentName, admissionNumber: student.admissionNumber, values, totalMarks, obtainedMarks, completedSubjects, percentage: totalMarks ? obtainedMarks / totalMarks * 100 : 0, grade: grade(totalMarks ? obtainedMarks / totalMarks * 100 : 0) };
+    const percentage = totalMarks ? obtainedMarks / totalMarks * 100 : 0;
+    return { id: student.id, name: student.application.studentName, admissionNumber: student.admissionNumber, values, totalMarks, obtainedMarks, completedSubjects, percentage, grade: resolveGrade(gradingBands, percentage) };
   });
 
   const ranked = [...rows].filter(row => row.completedSubjects === expectedKeys.size).sort((a, b) => b.percentage - a.percentage || b.obtainedMarks - a.obtainedMarks || a.name.localeCompare(b.name));
