@@ -1,12 +1,9 @@
 -- Preserve current enrollment structure on the enrollment row and keep an immutable lifecycle trail.
+-- academicGradeId and academicSectionId are created by the preceding academic-structure migration.
 ALTER TABLE "Enrollment"
-  ADD COLUMN "academicSessionId" TEXT,
-  ADD COLUMN "academicGradeId" TEXT,
-  ADD COLUMN "academicSectionId" TEXT;
+  ADD COLUMN "academicSessionId" TEXT;
 
 CREATE INDEX "Enrollment_academicSessionId_idx" ON "Enrollment"("academicSessionId");
-CREATE INDEX "Enrollment_academicGradeId_idx" ON "Enrollment"("academicGradeId");
-CREATE INDEX "Enrollment_academicSectionId_idx" ON "Enrollment"("academicSectionId");
 
 CREATE TABLE "EnrollmentHistory" (
   "id" TEXT NOT NULL,
