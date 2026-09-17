@@ -4,6 +4,7 @@ import { requestAuditContext, writeAuditLog } from "@/lib/audit";
 import { prisma } from "@/lib/prisma";
 import { generateGrNumber, getCustomFieldDefinitions, saveCustomValues } from "@/lib/student-registry";
 import type { Gender, UserRole } from "@prisma/client";
+import { randomUUID } from "node:crypto";
 
 const REGISTRATION_ROLES: UserRole[] = ["SUPER_ADMIN", "ADMIN", "RECEPTIONIST"];
 function validGender(value: unknown): Gender | null { return typeof value === "string" && ["MALE", "FEMALE", "OTHER"].includes(value) ? value as Gender : null; }
@@ -31,9 +32,11 @@ export async function POST(request:NextRequest) {
       const numbers=await tx.$queryRawUnsafe<{applicationNumber:string;admissionNumber:string}[]>(`SELECT 'REG-' || LPAD(nextval('"application_number_seq"')::text, 5, '0') AS "applicationNumber", 'ADM-' || LPAD(nextval('"admission_number_seq"')::text, 5, '0') AS "admissionNumber"`);
       const numberSet=numbers[0]; if(!numberSet)throw new Error("Unable to allocate registration numbers.");
       const application=await tx.application.create({data:{applicationNumber:numberSet.applicationNumber,sessionId,desiredClass:selected.gradeName,studentName:name,dateOfBirth,gender,guardianName,guardianPhone,guardianEmail:typeof body.guardianEmail==="string"?body.guardianEmail.trim()||null:null,previousSchool:typeof body.previousSchool==="string"?body.previousSchool.trim()||null:null,status:"ENROLLED"}});
-      const enrollment=await tx.enrollment.create({data:{applicationId:application.id,studentId:`STU-${crypto.randomUUID().slice(0,8).toUpperCase()}`,admissionNumber:numberSet.admissionNumber,className:selected.gradeName,section:selected.sectionName}});
-      await tx.$executeRawUnsafe(`UPDATE "Enrollment" SET "academicSessionId"=$1,"academicGradeId"=$2,"academicSectionId"=$3,"status"='ACTIVE' WHERE "id"=$4`,selected.sessionId,selected.gradeId,selected.sectionId,enrollment.id);
-      const grNumber=await generateGrNumber(tx); const registry=await tx.$queryRawUnsafe<{id:string}[]>(`INSERT INTO "StudentRegistry" ("id","enrollmentId","grNumber") VALUES ($1,$2,$3) RETURNING "id"`,crypto.randomUUID(),enrollment.id,grNumber); await saveCustomValues(tx,registry[0].id,customFields,user.role); return {application,enrollment,grNumber};
+      const enrollment=await tx.enrollment.create({data:{applicationId:application.id,studentId:`STU-${crypto.randomUUID().slice(0,8).toUpperCase()}`,admissionNumber:numberSet.admissionNumber,className:selected.gradeName,section:selected.sectionName,academicSessionId:selected.sessionId,academicGradeId:selected.gradeId,academicSectionId:selected.sectionId,status:"ACTIVE"}});
+      const grNumber=await generateGrNumber(tx); const registry=await tx.$queryRawUnsafe<{id:string}[]>(`INSERT INTO "StudentRegistry" ("id","enrollmentId","grNumber") VALUES ($1,$2,$3) RETURNING "id"`,randomUUID(),enrollment.id,grNumber); if(!registry[0])throw new Error("STUDENT_REGISTRY_CREATE_FAILED");
+      await saveCustomValues(tx,registry[0].id,customFields,user.role);
+      await tx.$executeRawUnsafe(`INSERT INTO "EnrollmentHistory" ("id","enrollmentId","action","academicSessionId","academicSessionName","academicGradeId","academicGradeName","academicSectionId","academicSectionName","className","section","status","effectiveAt","note","createdBy") VALUES ($1,$2,'ENROLLED',$3,$4,$5,$6,$7,$8,$9,$10,'ACTIVE',CURRENT_TIMESTAMP,$11,$12)`,randomUUID(),enrollment.id,selected.sessionId,selected.sessionName,selected.gradeId,selected.gradeName,selected.sectionId,selected.sectionName,selected.gradeName,selected.sectionName,"Student registry enrollment",user.id);
+      return {application,enrollment,grNumber};
     });
     await writeAuditLog({userId:user.id,action:"STUDENT_REGISTERED",entityType:"Application",entityId:result.application.id,metadata:{studentId:result.enrollment.studentId,grNumber:result.grNumber,className:result.enrollment.className,section:result.enrollment.section},context});
     return NextResponse.json({ok:true,id:result.application.id,studentId:result.enrollment.studentId,grNumber:result.grNumber,name:result.application.studentName,className:result.enrollment.className,section:result.enrollment.section},{status:201});
