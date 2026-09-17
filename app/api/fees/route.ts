@@ -2,11 +2,12 @@ import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, roleAllowed } from "@/lib/auth";
 import { requestAuditContext, writeAuditLog } from "@/lib/audit";
 import { queueParentNotification } from "@/lib/communication/events";
 import { z } from "zod";
 
+const feeRoles = ["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"] as const;
 const invoiceSchema = z.object({ studentId: z.string().min(1), feeType: z.string().trim().min(1).max(100), amount: z.coerce.number().positive(), discount: z.coerce.number().min(0).default(0), dueDate: z.string().min(1) }).refine(x => x.discount <= x.amount, { message: "Discount cannot exceed the invoice amount.", path: ["discount"] });
 const paymentSchema = z.object({ invoiceId: z.string().min(1), amount: z.coerce.number().positive(), paymentMethod: z.string().trim().max(60).optional() });
 
@@ -14,10 +15,17 @@ function isSerializationConflict(error: unknown) {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034";
 }
 
+async function authorize() {
+  const user = await getCurrentUser();
+  if (!user) return { response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
+  if (!roleAllowed(user.role, [...feeRoles])) return { response: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
+  return { user };
+}
+
 export async function GET(request: NextRequest) {
   try {
-    const user = await getCurrentUser();
-    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const auth = await authorize();
+    if (auth.response) return auth.response;
     const status = request.nextUrl.searchParams.get("status") || undefined;
     const invoices = await prisma.feeInvoice.findMany({ where: status ? { status } : undefined, include: { student: { include: { application: true } }, payments: true }, orderBy: { dueDate: "asc" }, take: 500 });
     return NextResponse.json(invoices);
@@ -26,8 +34,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const user = await getCurrentUser();
-    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const auth = await authorize();
+    if (auth.response) return auth.response;
+    const user = auth.user;
     const body = await request.json();
     const context = requestAuditContext(request);
 
@@ -74,23 +83,11 @@ export async function POST(request: NextRequest) {
 
       let notification: { created: boolean; reason?: string; channelCount?: number } = { created: false, reason: "NOT_ATTEMPTED" };
       try {
-        const invoice = await prisma.feeInvoice.findUnique({
-          where: { id: parsed.data.invoiceId },
-          include: { student: { include: { application: true } } },
-        });
+        const invoice = await prisma.feeInvoice.findUnique({ where: { id: parsed.data.invoiceId }, include: { student: { include: { application: true } } } });
         if (invoice) {
           const studentName = invoice.student.application?.studentName?.trim() || "Student";
-          notification = await queueParentNotification({
-            eventKey: "FEE_PAYMENT_RECEIVED",
-            sourceRef: payment.id,
-            enrollmentId: invoice.studentId,
-            title: `Fee payment received: ${studentName}`,
-            message: `A payment of PKR ${Number(parsed.data.amount).toLocaleString()} was recorded for ${studentName}. Receipt ${payment.receiptNumber}. Remaining balance: PKR ${remaining.toLocaleString()}.`,
-            createdBy: user.id,
-          });
-        } else {
-          notification = { created: false, reason: "INVOICE_NOT_FOUND" };
-        }
+          notification = await queueParentNotification({ eventKey: "FEE_PAYMENT_RECEIVED", sourceRef: payment.id, enrollmentId: invoice.studentId, title: `Fee payment received: ${studentName}`, message: `A payment of PKR ${Number(parsed.data.amount).toLocaleString()} was recorded for ${studentName}. Receipt ${payment.receiptNumber}. Remaining balance: PKR ${remaining.toLocaleString()}.`, createdBy: user.id });
+        } else notification = { created: false, reason: "INVOICE_NOT_FOUND" };
       } catch (error) {
         console.error("Fee payment notification failed", error);
         notification = { created: false, reason: "NOTIFICATION_ERROR" };
@@ -109,14 +106,7 @@ export async function POST(request: NextRequest) {
     let notification: { created: boolean; reason?: string; channelCount?: number } = { created: false, reason: "NOT_ATTEMPTED" };
     try {
       const studentName = student.application?.studentName?.trim() || "Student";
-      notification = await queueParentNotification({
-        eventKey: "FEE_INVOICE_ISSUED",
-        sourceRef: invoice.id,
-        enrollmentId: student.id,
-        title: `Fee invoice issued: ${studentName}`,
-        message: `A ${parsed.data.feeType} fee invoice of PKR ${netAmount.toLocaleString()} was issued for ${studentName}. Due date: ${dueDate.toLocaleDateString()}. Invoice ${invoice.invoiceNumber}.`,
-        createdBy: user.id,
-      });
+      notification = await queueParentNotification({ eventKey: "FEE_INVOICE_ISSUED", sourceRef: invoice.id, enrollmentId: student.id, title: `Fee invoice issued: ${studentName}`, message: `A ${parsed.data.feeType} fee invoice of PKR ${netAmount.toLocaleString()} was issued for ${studentName}. Due date: ${dueDate.toLocaleDateString()}. Invoice ${invoice.invoiceNumber}.`, createdBy: user.id });
     } catch (error) {
       console.error("Fee invoice notification failed", error);
       notification = { created: false, reason: "NOTIFICATION_ERROR" };
