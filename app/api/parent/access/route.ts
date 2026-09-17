@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
     await writeAuditLog({ userId: user.id, action: "PARENT_ACCESS_LINK_CREATED", entityType: "Enrollment", entityId: enrollmentId, metadata: { expiresAt, guardianName: enrollment.application.guardianName }, context: requestAuditContext(request) });
 
     const origin = request.nextUrl.origin;
-    return NextResponse.json({ accessUrl: `${origin}/parent/notifications?token=${encodeURIComponent(token)}`, expiresAt, guardianName: enrollment.application.guardianName, studentName: enrollment.application.studentName });
+    return NextResponse.json({ accessUrl: `${origin}/parent/notifications#token=${encodeURIComponent(token)}`, expiresAt, guardianName: enrollment.application.guardianName, studentName: enrollment.application.studentName });
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: "Unable to create parent access link." }, { status: 500 });
