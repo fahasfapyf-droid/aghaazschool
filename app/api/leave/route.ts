@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, roleAllowed } from "@/lib/auth";
 import { requestAuditContext, writeAuditLog } from "@/lib/audit";
+import { queueParentNotification } from "@/lib/communication/events";
 import type { UserRole } from "@prisma/client";
 
 const LEAVE_ROLES: UserRole[] = ["SUPER_ADMIN", "ADMIN", "TEACHER", "RECEPTIONIST"];
@@ -59,8 +60,17 @@ export async function PATCH(request: NextRequest) {
     if (!existing) return NextResponse.json({ error: "Leave request not found." }, { status: 404 });
     if (existing.status !== "PENDING") return NextResponse.json({ error: "Only pending requests can be reviewed." }, { status: 409 });
     const row = await prisma.leaveRequest.update({ where: { id: body.id }, data: { status, reviewedBy: auth.user.id, reviewedAt: new Date(), reviewRemarks: typeof body.reviewRemarks === "string" ? body.reviewRemarks.trim() || null : null } });
-    await writeAuditLog({ userId: auth.user.id, action: status === "APPROVED" ? "LEAVE_REQUEST_APPROVED" : "LEAVE_REQUEST_REJECTED", entityType: "LeaveRequest", entityId: row.id, metadata: { studentId: row.studentId, previousStatus: existing.status, status: row.status }, context });
-    return NextResponse.json(row);
+    const student = await prisma.enrollment.findUnique({ where: { id: row.studentId }, include: { application: true } });
+    const notification = student ? await queueParentNotification({
+      eventKey: status === "APPROVED" ? "LEAVE_APPROVED" : "LEAVE_REJECTED",
+      sourceRef: row.id,
+      enrollmentId: row.studentId,
+      title: `${student.application.studentName} leave request ${status.toLowerCase()}`,
+      message: `The leave request for ${student.application.studentName} from ${row.startDate.toLocaleDateString("en-GB")} to ${row.endDate.toLocaleDateString("en-GB")} was ${status.toLowerCase()}.${row.reviewRemarks ? ` School note: ${row.reviewRemarks}` : ""}`,
+      createdBy: auth.user.id,
+    }) : { created: false, reason: "ENROLLMENT_NOT_FOUND" as const };
+    await writeAuditLog({ userId: auth.user.id, action: status === "APPROVED" ? "LEAVE_REQUEST_APPROVED" : "LEAVE_REQUEST_REJECTED", entityType: "LeaveRequest", entityId: row.id, metadata: { studentId: row.studentId, previousStatus: existing.status, status: row.status, notification }, context });
+    return NextResponse.json({ ...row, notification });
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: "Unable to review leave request." }, { status: 500 });
