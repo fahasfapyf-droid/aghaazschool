@@ -43,34 +43,24 @@ export default function ParentDashboardPage() {
         if (!dashboardResponse.ok) throw new Error(dashboardBody.error || "Parent access required.");
         setData(dashboardBody);
         if (leaveResponse.ok) setRequests((await leaveResponse.json()).requests || []);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Unable to open parent portal.");
-      } finally {
-        setLoading(false);
-      }
+      } catch (e) { setError(e instanceof Error ? e.message : "Unable to open parent portal."); }
+      finally { setLoading(false); }
     }
     void start();
   }, []);
 
   async function submitLeave(event: FormEvent) {
-    event.preventDefault();
-    setSubmitting(true); setRequestMessage("");
+    event.preventDefault(); setSubmitting(true); setRequestMessage("");
     try {
       const response = await fetch("/api/parent/leave-requests", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ startDate, endDate, reason }) });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || "Unable to submit leave request.");
-      setRequests((current) => [body, ...current]);
-      setStartDate(""); setEndDate(""); setReason("");
-      setRequestMessage("Leave request submitted for school review.");
+      setRequests(current => [body, ...current]); setStartDate(""); setEndDate(""); setReason(""); setRequestMessage("Leave request submitted for school review.");
     } catch (e) { setRequestMessage(e instanceof Error ? e.message : "Unable to submit leave request."); }
     finally { setSubmitting(false); }
   }
 
-  async function logout() {
-    await fetch("/api/parent/session", { method: "DELETE" });
-    setData(null);
-    setError("Your parent session has ended. Open a new school access link to sign in again.");
-  }
+  async function logout() { await fetch("/api/parent/session", { method: "DELETE" }); setData(null); setError("Your parent session has ended. Open a new school access link to sign in again."); }
 
   if (loading) return <main className="container"><section className="panel"><p>Opening secure parent portal…</p></section></main>;
   if (!data) return <main className="container" style={{ maxWidth: 860 }}><section className="panel"><h1>Parent Portal</h1><p>{error || "Open the secure access link provided by the school."}</p></section></main>;
@@ -83,28 +73,21 @@ export default function ParentDashboardPage() {
   return <main className="container" style={{ maxWidth: 1120 }}>
     <header className="admissions-header">
       <div><div className="eyebrow">Aghaaz / Parent Portal</div><h1>{data.student.name}</h1><p>{data.student.guardian} · {data.academic?.gradeName || data.student.className} {data.academic?.sectionName || data.student.section}</p></div>
-      <div style={{ display: "flex", gap: 8 }}><a className="button secondary" href="/parent/notifications">Notifications</a><button className="button secondary" onClick={() => void logout()}>Sign out</button></div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}><a className="button secondary" href="/parent/notifications">Notifications</a><a className="button secondary" href="/parent/attendance">Attendance</a><a className="button secondary" href="/parent/leave-requests">Leave requests</a><a className="button secondary" href="/parent/report-cards">Report cards</a><button className="button secondary" onClick={() => void logout()}>Sign out</button></div>
     </header>
-
     {error && <div className="error" role="alert">{error}</div>}
-
     <section className="module-grid" style={{ marginBottom: 20 }}>
-      <article className="module-card"><span>Attendance</span><strong>{data.attendance.rate === null ? "—" : `${data.attendance.rate}%`}</strong><small>Based on recent attendance records</small></article>
+      <article className="module-card"><span>Attendance</span><strong>{data.attendance.rate === null ? "—" : `${data.attendance.rate}%`}</strong><small>Based on recent attendance records</small><a href="/parent/attendance">View attendance</a></article>
       <article className="module-card"><span>Fee balance</span><strong>{money(data.fees.balance)}</strong><small>Outstanding across recorded invoices</small></article>
       <article className="module-card"><span>Homework</span><strong>{openHomework}</strong><small>Not submitted</small></article>
-      <article className="module-card"><span>Published results</span><strong>{data.results.length}</strong><small>Results available to parents</small></article>
+      <article className="module-card"><span>Published results</span><strong>{data.results.length}</strong><small>Results available to parents</small><a href="/parent/report-cards">View report cards</a></article>
     </section>
-
     <div style={{ display: "grid", gap: 20 }}>
-      <section className="panel"><div className="panel-header"><div><h2>Attendance</h2><p>Recent attendance records</p></div></div>{recentAttendance.length ? <div className="table-wrap"><table><thead><tr><th>Date</th><th>Status</th></tr></thead><tbody>{recentAttendance.map(item => <tr key={item.date}><td>{date(item.date)}</td><td>{item.status}</td></tr>)}</tbody></table></div> : <div className="empty-state">No attendance records yet.</div>}</section>
-
-      <section className="panel"><div className="panel-header"><div><h2>Homework</h2><p>Assigned work and submission status</p></div></div>{data.homework.length ? <div className="table-wrap"><table><thead><tr><th>Homework</th><th>Subject</th><th>Due</th><th>Status</th></tr></thead><tbody>{data.homework.slice(0, 8).map(item => <tr key={item.id}><td>{item.title}</td><td>{item.subject}</td><td>{date(item.dueDate)}</td><td>{item.status}</td></tr>)}</tbody></table></div> : <div className="empty-state">No homework records yet.</div>}</section>
-
-      <section className="panel"><div className="panel-header"><div><h2>Fees</h2><p>Invoice balances and payment history</p></div></div>{recentFees.length ? <div className="table-wrap"><table><thead><tr><th>Invoice</th><th>Type</th><th>Amount</th><th>Paid</th><th>Balance</th><th>Due</th></tr></thead><tbody>{recentFees.map(item => <tr key={item.id}><td>{item.invoiceNumber}</td><td>{item.feeType}</td><td>{money(item.netAmount)}</td><td>{money(item.paid)}</td><td>{money(item.balance)}</td><td>{date(item.dueDate)}</td></tr>)}</tbody></table></div> : <div className="empty-state">No fee records yet.</div>}</section>
-
-      <section className="panel"><div className="panel-header"><div><h2>Published Results</h2><p>Only published examinations are shown</p></div></div>{recentResults.length ? <div className="table-wrap"><table><thead><tr><th>Exam</th><th>Subject</th><th>Marks</th><th>Grade</th></tr></thead><tbody>{recentResults.map(item => <tr key={item.id}><td>{item.exam}</td><td>{item.subject}</td><td>{item.marks} / {item.maxMarks}</td><td>{item.grade}</td></tr>)}</tbody></table></div> : <div className="empty-state">No published results yet.</div>}</section>
-
-      <section className="panel"><div className="panel-header"><div><h2>Request Leave</h2><p>Submit an absence request for school review.</p></div></div><form onSubmit={submitLeave} style={{ display: "grid", gap: 12 }}><div className="form-grid"><label>Start date<input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} required /></label><label>End date<input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} required /></label></div><label>Reason<textarea value={reason} onChange={e => setReason(e.target.value)} minLength={5} maxLength={500} required placeholder="Reason for absence" /></label><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}><button className="button" type="submit" disabled={submitting}>{submitting ? "Submitting…" : "Submit leave request"}</button>{requestMessage && <span>{requestMessage}</span>}</div></form>{requests.length > 0 && <div className="table-wrap" style={{ marginTop: 18 }}><table><thead><tr><th>Dates</th><th>Reason</th><th>Status</th><th>Review</th></tr></thead><tbody>{requests.slice(0, 10).map(item => <tr key={item.id}><td>{date(item.startDate)} – {date(item.endDate)}</td><td>{item.reason}</td><td>{item.status}</td><td>{item.reviewRemarks || "—"}</td></tr>)}</tbody></table></div>}</section>
+      <section className="panel"><div className="panel-header"><div><h2>Attendance</h2><p>Recent attendance records</p></div><a className="button secondary" href="/parent/attendance">View all</a></div>{recentAttendance.length ? <div className="table-wrap"><table><thead><tr><th>Date</th><th>Status</th></tr></thead><tbody>{recentAttendance.map(item => <tr key={item.date}><td>{date(item.date)}</td><td>{item.status}</td></tr>)}</tbody></table></div> : <div className="empty-state">No attendance records yet.</div>}</section>
+      <section className="panel"><div className="panel-header"><div><h2>Homework</h2><p>Assigned work and submission status</p></div></div>{data.homework.length ? <div className="table-wrap"><table><thead><tr><th>Homework</th><th>Subject</th><th>Due</th><th>Status</th></tr></thead><tbody>{data.homework.slice(0, 8).map(item => <tr key={item.id}><td><a href={`/parent/homework/${item.id}`}>{item.title}</a></td><td>{item.subject}</td><td>{date(item.dueDate)}</td><td>{item.status}</td></tr>)}</tbody></table></div> : <div className="empty-state">No homework records yet.</div>}</section>
+      <section className="panel"><div className="panel-header"><div><h2>Fees</h2><p>Invoice balances and payment history</p></div></div>{recentFees.length ? <div className="table-wrap"><table><thead><tr><th>Invoice</th><th>Type</th><th>Amount</th><th>Paid</th><th>Balance</th><th>Due</th></tr></thead><tbody>{recentFees.map(item => <tr key={item.id}><td><a href={`/parent/fees/${item.id}`}>{item.invoiceNumber}</a></td><td>{item.feeType}</td><td>{money(item.netAmount)}</td><td>{money(item.paid)}</td><td>{money(item.balance)}</td><td>{date(item.dueDate)}</td></tr>)}</tbody></table></div> : <div className="empty-state">No fee records yet.</div>}</section>
+      <section className="panel"><div className="panel-header"><div><h2>Published Results</h2><p>Only published examinations are shown</p></div><a className="button secondary" href="/parent/report-cards">Report cards</a></div>{recentResults.length ? <div className="table-wrap"><table><thead><tr><th>Exam</th><th>Subject</th><th>Marks</th><th>Grade</th></tr></thead><tbody>{recentResults.map(item => <tr key={item.id}><td>{item.exam}</td><td>{item.subject}</td><td>{item.marks} / {item.maxMarks}</td><td>{item.grade}</td></tr>)}</tbody></table></div> : <div className="empty-state">No published results yet.</div>}</section>
+      <section className="panel"><div className="panel-header"><div><h2>Request Leave</h2><p>Submit an absence request for school review.</p></div><a className="button secondary" href="/parent/leave-requests">Full leave history</a></div><form onSubmit={submitLeave} style={{ display: "grid", gap: 12 }}><div className="form-grid"><label>Start date<input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} required /></label><label>End date<input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} required /></label></div><label>Reason<textarea value={reason} onChange={e => setReason(e.target.value)} minLength={5} maxLength={500} required placeholder="Reason for absence" /></label><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}><button className="button" type="submit" disabled={submitting}>{submitting ? "Submitting…" : "Submit leave request"}</button>{requestMessage && <span>{requestMessage}</span>}</div></form>{requests.length > 0 && <div className="table-wrap" style={{ marginTop: 18 }}><table><thead><tr><th>Dates</th><th>Reason</th><th>Status</th><th>Review</th></tr></thead><tbody>{requests.slice(0, 10).map(item => <tr key={item.id}><td>{date(item.startDate)} – {date(item.endDate)}</td><td>{item.reason}</td><td>{item.status}</td><td>{item.reviewRemarks || "—"}</td></tr>)}</tbody></table></div>}</section>
     </div>
   </main>;
 }
