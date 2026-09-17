@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
 
     const requestedStaffId = request.nextUrl.searchParams.get("staffId") || "";
     const staffRows = await prisma.staff.findMany({ where: { staffType: "TEACHER", active: true }, select: { id: true, employeeNumber: true, name: true, email: true, designation: true }, orderBy: { name: "asc" } });
-    if (!staffRows.length) return NextResponse.json({ staff: [], teachers: [], schedule: [], classes: [], homework: [], actions: [] });
+    if (!staffRows.length) return NextResponse.json({ staff: [], teachers: [], schedule: [], classes: [], homework: [], actions: [], staffAttendance: null });
 
     let staff = requestedStaffId ? staffRows.find(x => x.id === requestedStaffId) : undefined;
     if (user.role === "TEACHER") {
@@ -74,6 +74,11 @@ export async function GET(request: NextRequest) {
       WHERE "assignedTo"=$1 AND "status" IN ('OPEN','IN_PROGRESS')
       ORDER BY CASE WHEN "dueDate" IS NULL THEN 1 ELSE 0 END, "dueDate" ASC, "createdAt" ASC LIMIT 20
     `, staff.id);
+    const staffAttendanceRows = await prisma.$queryRawUnsafe<Array<{ id: string; status: string; checkIn: Date | null; checkOut: Date | null; remarks: string | null }>>(`
+      SELECT "id","status","checkIn","checkOut","remarks" FROM "StaffAttendance"
+      WHERE "staffId"=$1 AND "date"=$2::date LIMIT 1
+    `, staff.id, start.toISOString().slice(0, 10));
+    const staffAttendance = staffAttendanceRows[0] ? { ...staffAttendanceRows[0], checkIn: staffAttendanceRows[0].checkIn?.toISOString() || null, checkOut: staffAttendanceRows[0].checkOut?.toISOString() || null } : null;
 
     return NextResponse.json({
       staff: { id: staff.id, employeeNumber: staff.employeeNumber, name: staff.name, email: staff.email, designation: staff.designation },
@@ -85,6 +90,7 @@ export async function GET(request: NextRequest) {
       classes,
       homework: homework.map(x => ({ id: x.id, title: x.title, subject: x.subject, className: x.className, section: x.section, dueDate: x.dueDate, submissions: x._count.submissions, status: x.status })),
       actions: actionRows.map(x => ({ ...x, dueDate: x.dueDate?.toISOString() || null })),
+      staffAttendance,
     });
   } catch (error) {
     console.error(error);
