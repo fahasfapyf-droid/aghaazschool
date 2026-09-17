@@ -1,0 +1,1 @@
+Curriculum API supports reading and creating curriculum records, topics, and section teaching plans. All writes are authenticated, role-restricted, validated against active academic structure, and audited.
