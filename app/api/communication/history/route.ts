@@ -13,8 +13,8 @@ export async function GET(request: NextRequest) {
     const channel = request.nextUrl.searchParams.get("channel")?.trim();
     const params: unknown[] = [];
     const where: string[] = [];
-    if (status) { params.push(status); where.push(`"status" = $${params.length}`); }
-    if (channel) { params.push(channel); where.push(`"channel" = $${params.length}`); }
+    if (status) { params.push(status); where.push(`d."status" = $${params.length}`); }
+    if (channel) { params.push(channel); where.push(`d."channel" = $${params.length}`); }
     const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
     const rows = await prisma.$queryRawUnsafe(`SELECT d.*, n."title" AS "noticeTitle" FROM "CommunicationDelivery" d LEFT JOIN "CommunicationNotice" n ON n."id" = d."noticeId" ${clause} ORDER BY d."createdAt" DESC LIMIT 200`, ...params);
     return NextResponse.json({ deliveries: rows });
