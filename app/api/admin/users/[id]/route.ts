@@ -32,12 +32,20 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       if (!Object.values(UserRole).includes(role)) return NextResponse.json({ error: "Invalid role." }, { status: 400 });
       if (actor.role !== "SUPER_ADMIN" && role === "SUPER_ADMIN") return NextResponse.json({ error: "Only a Super Admin can assign Super Admin." }, { status: 403 });
       if (target.id === actor.id && role !== actor.role) return NextResponse.json({ error: "You cannot change your own role." }, { status: 400 });
+      if (target.role === "SUPER_ADMIN" && role !== "SUPER_ADMIN") {
+        const count = await prisma.user.count({ where: { role: "SUPER_ADMIN", active: true } });
+        if (count <= 1) return NextResponse.json({ error: "The last active Super Admin cannot be removed or demoted." }, { status: 409 });
+      }
       data.role = role;
     }
     if (body.active !== undefined) {
       if (typeof body.active !== "boolean") return NextResponse.json({ error: "Active must be a boolean." }, { status: 400 });
       const active = body.active;
       if (target.id === actor.id && !active) return NextResponse.json({ error: "You cannot deactivate your own account." }, { status: 400 });
+      if (!active && target.role === "SUPER_ADMIN") {
+        const count = await prisma.user.count({ where: { role: "SUPER_ADMIN", active: true } });
+        if (count <= 1) return NextResponse.json({ error: "The last active Super Admin cannot be deactivated." }, { status: 409 });
+      }
       data.active = active;
     }
     if (body.password !== undefined) {
