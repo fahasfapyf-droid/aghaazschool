@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { requestAuditContext, writeAuditLog } from "@/lib/audit";
+import { queueParentNotification } from "@/lib/communication/events";
 import { z } from "zod";
 
 const invoiceSchema = z.object({ studentId: z.string().min(1), feeType: z.string().trim().min(1).max(100), amount: z.coerce.number().positive(), discount: z.coerce.number().min(0).default(0), dueDate: z.string().min(1) }).refine(x => x.discount <= x.amount, { message: "Discount cannot exceed the invoice amount.", path: ["discount"] });
@@ -70,7 +71,32 @@ export async function POST(request: NextRequest) {
       }
 
       await writeAuditLog({ userId: user.id, action: "FEE_PAYMENT_CREATED", entityType: "FeePayment", entityId: payment.id, metadata: { invoiceId: parsed.data.invoiceId, amount: parsed.data.amount, paymentMethod: parsed.data.paymentMethod ?? null, remainingAfterPayment: remaining }, context });
-      return NextResponse.json(payment, { status: 201 });
+
+      let notification: { created: boolean; reason?: string; channelCount?: number } = { created: false, reason: "NOT_ATTEMPTED" };
+      try {
+        const invoice = await prisma.feeInvoice.findUnique({
+          where: { id: parsed.data.invoiceId },
+          include: { student: { include: { application: true } } },
+        });
+        if (invoice) {
+          const studentName = invoice.student.application?.studentName?.trim() || "Student";
+          notification = await queueParentNotification({
+            eventKey: "FEE_PAYMENT_RECEIVED",
+            sourceRef: payment.id,
+            enrollmentId: invoice.studentId,
+            title: `Fee payment received: ${studentName}`,
+            message: `A payment of PKR ${Number(parsed.data.amount).toLocaleString()} was recorded for ${studentName}. Receipt ${payment.receiptNumber}. Remaining balance: PKR ${remaining.toLocaleString()}.`,
+            createdBy: user.id,
+          });
+        } else {
+          notification = { created: false, reason: "INVOICE_NOT_FOUND" };
+        }
+      } catch (error) {
+        console.error("Fee payment notification failed", error);
+        notification = { created: false, reason: "NOTIFICATION_ERROR" };
+      }
+
+      return NextResponse.json({ ...payment, notification }, { status: 201 });
     }
 
     const parsed = invoiceSchema.safeParse(body); if (!parsed.success) return NextResponse.json({ error: "Invalid invoice", details: parsed.error.flatten() }, { status: 400 });
