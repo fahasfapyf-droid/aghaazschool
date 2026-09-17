@@ -6,6 +6,7 @@ const roleRules: Array<[string, string[]]> = [
   ["/admin", ["SUPER_ADMIN", "ADMIN"]],
   ["/admissions", ["SUPER_ADMIN", "ADMIN", "RECEPTIONIST"]],
   ["/fees", ["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"]],
+  ["/finance", ["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"]],
   ["/attendance", ["SUPER_ADMIN", "ADMIN", "TEACHER"]],
   ["/examinations", ["SUPER_ADMIN", "ADMIN", "TEACHER"]],
   ["/results", ["SUPER_ADMIN", "ADMIN", "TEACHER"]],
@@ -14,9 +15,14 @@ const roleRules: Array<[string, string[]]> = [
   ["/communication", ["SUPER_ADMIN", "ADMIN", "RECEPTIONIST"]],
   ["/leave", ["SUPER_ADMIN", "ADMIN", "TEACHER", "RECEPTIONIST"]],
   ["/students", ["SUPER_ADMIN", "ADMIN", "TEACHER", "RECEPTIONIST"]],
+  ["/teachers", ["SUPER_ADMIN", "ADMIN", "TEACHER"]],
+  ["/staff", ["SUPER_ADMIN", "ADMIN"]],
+  ["/reports", ["SUPER_ADMIN", "ADMIN", "TEACHER", "ACCOUNTANT", "RECEPTIONIST"]],
+  ["/settings", ["SUPER_ADMIN", "ADMIN"]],
   ["/api/admin", ["SUPER_ADMIN", "ADMIN"]],
   ["/api/admissions", ["SUPER_ADMIN", "ADMIN", "RECEPTIONIST"]],
   ["/api/fees", ["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"]],
+  ["/api/finance", ["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"]],
   ["/api/attendance", ["SUPER_ADMIN", "ADMIN", "TEACHER"]],
   ["/api/examinations", ["SUPER_ADMIN", "ADMIN", "TEACHER"]],
   ["/api/results", ["SUPER_ADMIN", "ADMIN", "TEACHER"]],
@@ -25,6 +31,10 @@ const roleRules: Array<[string, string[]]> = [
   ["/api/communication", ["SUPER_ADMIN", "ADMIN", "RECEPTIONIST"]],
   ["/api/leave", ["SUPER_ADMIN", "ADMIN", "TEACHER", "RECEPTIONIST"]],
   ["/api/students", ["SUPER_ADMIN", "ADMIN", "TEACHER", "RECEPTIONIST"]],
+  ["/api/teachers", ["SUPER_ADMIN", "ADMIN", "TEACHER"]],
+  ["/api/staff", ["SUPER_ADMIN", "ADMIN"]],
+  ["/api/reports", ["SUPER_ADMIN", "ADMIN", "TEACHER", "ACCOUNTANT", "RECEPTIONIST"]],
+  ["/api/settings", ["SUPER_ADMIN", "ADMIN"]],
   ["/api/dashboard", ["SUPER_ADMIN", "ADMIN", "TEACHER", "ACCOUNTANT", "RECEPTIONIST"]],
 ];
 
@@ -39,15 +49,8 @@ function secureResponse(response: NextResponse, pathname: string) {
   response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
   response.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
   response.headers.set("X-DNS-Prefetch-Control", "off");
-
-  if (pathname.startsWith("/api/")) {
-    response.headers.set("Cache-Control", "no-store, max-age=0");
-  }
-
-  if (process.env.NODE_ENV === "production") {
-    response.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
-  }
-
+  if (pathname.startsWith("/api/")) response.headers.set("Cache-Control", "no-store, max-age=0");
+  if (process.env.NODE_ENV === "production") response.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   return response;
 }
 
