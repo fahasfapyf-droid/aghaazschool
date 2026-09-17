@@ -12,6 +12,20 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: aghaaz
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U ci -d aghaaz"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
     env:
       DATABASE_URL: postgresql://ci:ci@localhost:5432/aghaaz
       AUTH_SECRET: ci-auth-secret-012345678901234567890123456789
@@ -29,6 +43,8 @@ jobs:
         run: npx prisma validate
       - name: Generate Prisma client
         run: npx prisma generate
+      - name: Apply all Prisma migrations
+        run: npx prisma migrate deploy
       - name: Type check
         run: npx tsc --noEmit
       - name: Lint
