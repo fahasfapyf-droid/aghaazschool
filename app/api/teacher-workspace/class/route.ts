@@ -50,9 +50,9 @@ export async function GET(request: NextRequest) {
     if (!entry[0]) return NextResponse.json({ error: "This class is not assigned to the current teacher." }, { status: 403 });
 
     const students = await prisma.$queryRawUnsafe<Array<Record<string, unknown>>>(
-      `SELECT e."id" AS "enrollmentId",a."studentName",a."admissionNumber",a."grNumber",e."status",COALESCE(att."status"::text,'NOT_RECORDED') AS "attendanceStatus",att."remarks" AS "attendanceRemarks"
-       FROM "Enrollment" e JOIN "Application" a ON a."id"=e."applicationId" LEFT JOIN "Attendance" att ON att."studentId"=e."id" AND att."date"=$2::date
-       WHERE e."academicSectionId"=$1 AND lower(e."status")='active' ORDER BY a."studentName" ASC`, sectionId, noteDate);
+      `SELECT e."id" AS "enrollmentId",a."studentName",e."admissionNumber",sr."grNumber",e."status",COALESCE(att."status"::text,'NOT_RECORDED') AS "attendanceStatus",att."remarks" AS "attendanceRemarks"
+       FROM "Enrollment" e JOIN "Application" a ON a."id"=e."applicationId" LEFT JOIN "StudentRegistry" sr ON sr."enrollmentId"=e."id" LEFT JOIN "Attendance" att ON att."studentId"=e."id" AND att."date"=$2::date
+       WHERE e."academicSectionId"=$1 AND lower(e."status") IN ('active','enrolled') ORDER BY a."studentName" ASC`, sectionId, noteDate);
     const note = await prisma.$queryRawUnsafe<Array<Record<string, unknown>>>(
       `SELECT "id","topic","summary","followUp","noteDate","teacherStaffId","updatedAt" FROM "TeacherClassNote" WHERE "timetableEntryId"=$1 AND "noteDate"=$2::date LIMIT 1`, timetableEntryId, noteDate);
     const homework = await prisma.homework.findMany({ where: { className: String(entry[0].className), section: entry[0].section ? String(entry[0].section) : null }, orderBy: { dueDate: "desc" }, take: 10 });
