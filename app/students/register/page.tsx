@@ -3,7 +3,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 type Field={id:string;key:string;label:string;section:string;type:string;required:boolean;condition:{field?:string;equals?:unknown}|null;options:string[]|null};
-type Section={id:string;name:string;gradeId:string;gradeName:string;gradeCode:string};
+type Section={id:string;name:string;gradeId:string;gradeName:string;gradeCode:string;capacity:number|null};
 type Grade={id:string;name:string;code:string;sessionId:string};
 type Session={id:string;name:string;startDate:string;endDate:string};
 type Result={id:string;studentId:string;grNumber:string;name:string;className:string};
