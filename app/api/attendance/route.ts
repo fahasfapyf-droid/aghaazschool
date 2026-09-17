@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
 
     const studentIds = parsed.data.records.map(r => r.studentId);
     if (new Set(studentIds).size !== studentIds.length) return NextResponse.json({ error: "Each student may appear only once in an attendance submission." }, { status: 400 });
-    const students = await prisma.enrollment.findMany({ where: { id: { in: studentIds }, status: "active" }, select: { id: true } });
+    const students = await prisma.$queryRawUnsafe<Array<{ id: string }>>(`SELECT "id" FROM "Enrollment" WHERE "id" = ANY($1::text[]) AND lower("status") IN ('active','enrolled')`, studentIds);
     if (students.length !== studentIds.length) {
       const found = new Set(students.map(s => s.id));
       return NextResponse.json({ error: "Attendance includes a missing or inactive student.", studentIds: studentIds.filter(id => !found.has(id)) }, { status: 400 });
