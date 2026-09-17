@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
-import { FormEvent, useEffect, useState } from "react";
+import type { FormEvent } from "react";
+import { useEffect, useState } from "react";
 
 type Staff = { id: string; name: string; employeeNumber: string; active: boolean };
 type ActionDraft = { category: string; referenceId: string; title: string; description: string; assignedTo: string; dueDate: string };
