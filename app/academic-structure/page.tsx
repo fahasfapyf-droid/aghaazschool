@@ -1,1 +1,31 @@
-export default function AcademicStructure(){return <main className="container"><h1>Academic Structure</h1><p>Configure academic years, terms, grades, sections, subjects and class teachers.</p></main>;}
+"use client";
+
+import { FormEvent, useEffect, useState } from "react";
+
+type Item={id:string;name:string;code?:string;gradeName?:string;subjectName?:string;termName?:string|null;teacherName?:string|null;staffName?:string};
+type Data={sessions:Item[];terms:Item[];grades:Item[];sections:Item[];subjects:Item[];classSubjects:Item[];classTeachers:Item[];staff:Item[]};
+const empty:Data={sessions:[],terms:[],grades:[],sections:[],subjects:[],classSubjects:[],classTeachers:[],staff:[]};
+
+export default function AcademicStructure(){
+ const [data,setData]=useState<Data>(empty); const [error,setError]=useState(""); const [saved,setSaved]=useState("");
+ const load=()=>fetch("/api/academic-structure").then(r=>r.json()).then(v=>setData(v as Data)).catch(()=>setError("Unable to load academic structure."));
+ useEffect(()=>{load()},[]);
+ async function save(e:FormEvent<HTMLFormElement>){e.preventDefault();setError("");setSaved("");const f=new FormData(e.currentTarget);const body:Record<string,unknown>={entity:f.get("entity")};f.forEach((v,k)=>{if(k!=="entity"&&v!=="")body[k]=["displayOrder","capacity","maxMarks"].includes(k)?Number(v):v});const r=await fetch("/api/academic-structure",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});const v=(await r.json()) as {error?:string};if(!r.ok){setError(v.error||"Unable to save.");return}e.currentTarget.reset();setSaved("Saved successfully.");load()}
+ return <main className="container">
+  <header className="admissions-header"><div><div className="eyebrow">Aghaaz / Settings</div><h1>Academic Structure</h1><p>Configure the hierarchy used by enrollment, teaching, attendance, assessments and reports.</p></div></header>
+  {error&&<div className="alert error">{error}</div>}{saved&&<div className="alert success">{saved}</div>}
+  <section className="module-grid">
+   <Editor title="Term" entity="term" onSubmit={save}><Select n="sessionId" l="Academic year" o={data.sessions}/><Input n="name" l="Term name" p="Term 1"/><Input n="termKey" l="Key" p="FIRST"/><Input n="startDate" l="Start" t="date"/><Input n="endDate" l="End" t="date"/></Editor>
+   <Editor title="Grade" entity="grade" onSubmit={save}><Select n="sessionId" l="Academic year" o={data.sessions}/><Input n="name" l="Grade" p="Class 1"/><Input n="code" l="Code" p="G1"/><Input n="displayOrder" l="Order" t="number"/></Editor>
+   <Editor title="Section" entity="section" onSubmit={save}><Select n="gradeId" l="Grade" o={data.grades}/><Input n="name" l="Section" p="A"/><Input n="capacity" l="Capacity" t="number"/><Select n="classTeacherStaffId" l="Class teacher" o={data.staff}/></Editor>
+   <Editor title="Subject" entity="subject" onSubmit={save}><Input n="code" l="Code" p="ENG"/><Input n="name" l="Subject" p="English"/><Input n="shortName" l="Short name" p="Eng"/></Editor>
+   <Editor title="Assign subject" entity="classSubject" onSubmit={save}><Select n="gradeId" l="Grade" o={data.grades}/><Select n="subjectId" l="Subject" o={data.subjects}/><Select n="termId" l="Term" o={data.terms}/><Select n="teacherStaffId" l="Teacher" o={data.staff}/><Input n="maxMarks" l="Max marks" t="number"/></Editor>
+   <Editor title="Assign class teacher" entity="classTeacher" onSubmit={save}><Select n="sectionId" l="Section" o={data.sections}/><Select n="staffId" l="Teacher" o={data.staff}/><Input n="startDate" l="Start" t="date"/><Input n="endDate" l="End" t="date"/></Editor>
+  </section>
+  <section className="module-grid"><Panel title="Terms" rows={data.terms}/><Panel title="Grades" rows={data.grades}/><Panel title="Sections" rows={data.sections}/><Panel title="Subjects" rows={data.subjects}/><Panel title="Subject assignments" rows={data.classSubjects}/><Panel title="Class teachers" rows={data.classTeachers}/></section>
+ </main>;
+}
+function Editor({title,entity,onSubmit,children}:{title:string;entity:string;onSubmit:(e:FormEvent<HTMLFormElement>)=>void;children:React.ReactNode}){return <form className="module-card" onSubmit={onSubmit}><input type="hidden" name="entity" value={entity}/><h3>{title}</h3>{children}<button className="button" type="submit">Save</button></form>}
+function Input({n,l,t="text",p}:{n:string;l:string;t?:string;p?:string}){return <label className="field"><span>{l}</span><input name={n} type={t} placeholder={p}/></label>}
+function Select({n,l,o}:{n:string;l:string;o:Item[]}){return <label className="field"><span>{l}</span><select name={n} defaultValue=""><option value="">Select…</option>{o.map(x=><option key={x.id} value={x.id}>{x.name}{x.code?` (${x.code})`:""}{x.staffName?` — ${x.staffName}`:""}</option>)}</select></label>}
+function Panel({title,rows}:{title:string;rows:Item[]}){return <div className="module-card"><h3>{title}</h3>{rows.length?<ul>{rows.map(x=><li key={x.id}>{x.gradeName?`${x.gradeName} · `:""}{x.name}{x.subjectName?` · ${x.subjectName}`:""}{x.termName?` · ${x.termName}`:""}{x.teacherName?` · ${x.teacherName}`:""}{x.staffName?` — ${x.staffName}`:""}</li>)}</ul>:<p>No records yet.</p>}</div>}
