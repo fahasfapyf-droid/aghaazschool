@@ -1,0 +1,1 @@
+Returns curriculum-level topic progress, optionally scoped by academic section and teacher. Progress is derived from TeachingPlan statuses and is intended for Teacher Workspace and Monitor integrations.
