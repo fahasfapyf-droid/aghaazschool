@@ -32,7 +32,7 @@ export async function notifyStaffByStaffId(staffId: string, input: Omit<UserNoti
   const linked = await prisma.$queryRawUnsafe<Array<{ userId: string }>>(
     `SELECT s."userId" FROM "Staff" s JOIN "User" u ON u."id"=s."userId" WHERE s."id"=$1 AND u."active"=true LIMIT 1`, staffId,
   );
-  let userId = linked[0]?.userId;
+  let userId: string | undefined = linked[0]?.userId;
   if (!userId) {
     const staff = await prisma.staff.findUnique({ where: { id: staffId }, select: { email: true } });
     const email = staff?.email?.trim();
