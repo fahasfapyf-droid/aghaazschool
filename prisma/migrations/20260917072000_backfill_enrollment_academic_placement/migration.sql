@@ -4,7 +4,7 @@
 --   1. session comes from the enrollment's Application.sessionId
 --   2. grade matches the stored className or application desiredClass by name/code
 --   3. section matches the stored section within that grade
--- Rows that cannot be matched unambiguously are left untouched for manual review.
+-- Rows that cannot be matched uniquely are left untouched for manual review.
 
 UPDATE "Enrollment" e
 SET "academicSessionId" = a."sessionId"
@@ -13,18 +13,32 @@ WHERE e."applicationId" = a."id"
   AND e."academicSessionId" IS NULL;
 
 UPDATE "Enrollment" e
-SET "academicGradeId" = g."id"
+SET "academicGradeId" = (
+  SELECT g."id"
+  FROM "AcademicGrade" g
+  WHERE g."sessionId" = a."sessionId"
+    AND (
+      lower(trim(g."name")) = lower(trim(e."className"))
+      OR lower(trim(g."code")) = lower(trim(e."className"))
+      OR lower(trim(g."name")) = lower(trim(a."desiredClass"))
+      OR lower(trim(g."code")) = lower(trim(a."desiredClass"))
+    )
+  LIMIT 1
+)
 FROM "Application" a
-JOIN "AcademicGrade" g
-  ON g."sessionId" = a."sessionId"
 WHERE e."applicationId" = a."id"
   AND e."academicGradeId" IS NULL
   AND (
-    lower(trim(g."name")) = lower(trim(e."className"))
-    OR lower(trim(g."code")) = lower(trim(e."className"))
-    OR lower(trim(g."name")) = lower(trim(a."desiredClass"))
-    OR lower(trim(g."code")) = lower(trim(a."desiredClass"))
-  );
+    SELECT count(*)
+    FROM "AcademicGrade" g
+    WHERE g."sessionId" = a."sessionId"
+      AND (
+        lower(trim(g."name")) = lower(trim(e."className"))
+        OR lower(trim(g."code")) = lower(trim(e."className"))
+        OR lower(trim(g."name")) = lower(trim(a."desiredClass"))
+        OR lower(trim(g."code")) = lower(trim(a."desiredClass"))
+      )
+  ) = 1;
 
 UPDATE "Enrollment" e
 SET "academicSectionId" = s."id"
