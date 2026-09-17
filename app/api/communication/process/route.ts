@@ -21,17 +21,22 @@ type DeliveryRow = {
 
 type NoticeRow = { id: string; title: string; message: string };
 
+function isCronAuthorized(request: NextRequest) {
+  const secret = process.env.CRON_SECRET;
+  return Boolean(secret && request.headers.get("authorization") === `Bearer ${secret}`);
+}
+
 export async function POST(request: NextRequest) {
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
-  if (!roleAllowed(user.role, [...ROLES])) return NextResponse.json({ error: "You do not have permission to process communication delivery." }, { status: 403 });
+  const cronAuthorized = isCronAuthorized(request);
+  const user = cronAuthorized ? null : await getCurrentUser();
+  if (!cronAuthorized && !user) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+  if (!cronAuthorized && !roleAllowed(user!.role, [...ROLES])) return NextResponse.json({ error: "You do not have permission to process communication delivery." }, { status: 403 });
 
   try {
     const body = await request.json().catch(() => ({}));
     const requestedLimit = Number(body.limit ?? 50);
     const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(Math.floor(requestedLimit), 1), MAX_BATCH) : 50;
 
-    // Recover workers that stopped while sending. A delivery older than 15 minutes is safe to retry.
     await prisma.$executeRawUnsafe(`UPDATE "CommunicationDelivery" SET "status"='QUEUED', "updatedAt"=NOW() WHERE "status"='SENDING' AND "updatedAt" < NOW() - INTERVAL '15 minutes' AND "attemptCount" < $1`, MAX_ATTEMPTS);
 
     const deliveries = await prisma.$queryRawUnsafe<DeliveryRow[]>(`UPDATE "CommunicationDelivery" SET "status"='SENDING', "lastAttemptAt"=NOW(), "updatedAt"=NOW() WHERE "id" IN (SELECT "id" FROM "CommunicationDelivery" WHERE "status"='QUEUED' AND ("nextAttemptAt" IS NULL OR "nextAttemptAt" <= NOW()) AND "attemptCount" < $1 ORDER BY "queuedAt" ASC FOR UPDATE SKIP LOCKED LIMIT $2) RETURNING "id","noticeId","channel","recipientType","recipientRef","recipientName","destination","attemptCount"`, MAX_ATTEMPTS, limit);
@@ -55,15 +60,7 @@ export async function POST(request: NextRequest) {
       }
 
       try {
-        const result = await sendDelivery({
-          channel: delivery.channel,
-          destination: delivery.destination,
-          recipientName: delivery.recipientName,
-          subject: notice.title,
-          body: notice.message,
-          noticeId: notice.id,
-          deliveryId: delivery.id,
-        });
+        const result = await sendDelivery({ channel: delivery.channel, destination: delivery.destination, recipientName: delivery.recipientName, subject: notice.title, body: notice.message, noticeId: notice.id, deliveryId: delivery.id });
         await prisma.$executeRawUnsafe(`UPDATE "CommunicationDelivery" SET "status"='SENT', "providerName"=$2, "providerMessageId"=$3, "sentAt"=NOW(), "error"=NULL, "nextAttemptAt"=NULL, "attemptCount"="attemptCount"+1, "updatedAt"=NOW() WHERE "id"=$1`, delivery.id, result.providerName, result.providerMessageId ?? null);
         sent += 1;
       } catch (error) {
@@ -75,7 +72,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    await writeAuditLog({ userId: user.id, action: "COMMUNICATION_DELIVERY_PROCESSED", entityType: "CommunicationDelivery", entityId: "batch", metadata: { attempted: deliveries.length, sent, failed, deferred }, context: requestAuditContext(request) });
+    await writeAuditLog({ userId: user?.id ?? null, action: "COMMUNICATION_DELIVERY_PROCESSED", entityType: "CommunicationDelivery", entityId: "batch", metadata: { attempted: deliveries.length, sent, failed, deferred, trigger: cronAuthorized ? "CRON" : "USER" }, context: requestAuditContext(request) });
     return NextResponse.json({ attempted: deliveries.length, sent, failed, deferred, remaining: deliveries.length === limit });
   } catch (error) {
     console.error(error);
