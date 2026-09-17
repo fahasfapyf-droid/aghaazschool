@@ -9,6 +9,7 @@ const text=(v:unknown)=>typeof v==='string'?v.trim():'';
 
 export async function GET(){
  const user=await getCurrentUser(); if(!user)return NextResponse.json({error:'Authentication required.'},{status:401});
+ if(!roleAllowed(user.role,WRITE_ROLES as never))return NextResponse.json({error:'You do not have permission to view batch promotion history.'},{status:403});
  try{
   const rows=await prisma.$queryRawUnsafe<Array<Record<string,unknown>>>(`SELECT bp.*,ss.name AS "sourceSessionName",sg.name AS "sourceGradeName",sx.name AS "sourceSectionName",ts.name AS "targetSessionName",tg.name AS "targetGradeName",tx.name AS "targetSectionName" FROM "BatchPromotion" bp JOIN "AcademicSession" ss ON ss.id=bp."sourceSessionId" JOIN "AcademicGrade" sg ON sg.id=bp."sourceGradeId" JOIN "AcademicSection" sx ON sx.id=bp."sourceSectionId" JOIN "AcademicSession" ts ON ts.id=bp."targetSessionId" JOIN "AcademicGrade" tg ON tg.id=bp."targetGradeId" JOIN "AcademicSection" tx ON tx.id=bp."targetSectionId" ORDER BY bp."createdAt" DESC LIMIT 50`);
   return NextResponse.json({promotions:rows});
