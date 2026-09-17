@@ -15,9 +15,9 @@ export async function GET(request: NextRequest) {
     const day = DAYS[new Date(`${dateParam}T12:00:00Z`).getUTCDay()];
     let teacherId = request.nextUrl.searchParams.get("teacherStaffId")?.trim() || null;
     if (user.role === "TEACHER") {
-      const teacher = await prisma.staff.findFirst({ where: { staffType: "TEACHER", active: true, email: { equals: user.email, mode: "insensitive" } }, select: { id: true, name: true, employeeNumber: true, designation: true, subject: true } });
-      if (!teacher) return NextResponse.json({ error: "Your user account is not linked to an active teacher record." }, { status: 409 });
-      teacherId = teacher.id;
+      const linked = await prisma.staff.findFirst({ where: { staffType: "TEACHER", active: true, email: { equals: user.email, mode: "insensitive" } }, select: { id: true } });
+      if (!linked) return NextResponse.json({ error: "Your user account is not linked to an active teacher record." }, { status: 409 });
+      teacherId = linked.id;
     }
     const teacher = teacherId ? await prisma.staff.findUnique({ where: { id: teacherId }, select: { id: true, name: true, employeeNumber: true, designation: true, subject: true, active: true } }) : null;
     if (teacherId && (!teacher || !teacher.active)) return NextResponse.json({ error: "Teacher record not found or inactive." }, { status: 404 });
@@ -30,7 +30,9 @@ export async function GET(request: NextRequest) {
       `SELECT e."academicSectionId" AS "sectionId",COUNT(*)::int AS "students",COUNT(*) FILTER (WHERE a."status"='PRESENT')::int AS "present",COUNT(*) FILTER (WHERE a."status"='ABSENT')::int AS "absent",COUNT(*) FILTER (WHERE a."status"='LATE')::int AS "late" FROM "Enrollment" e LEFT JOIN "Attendance" a ON a."studentId"=e."id" AND a."date"=$2::date WHERE e."academicSectionId" = ANY($1::text[]) AND e."status" NOT IN ('inactive','INACTIVE','WITHDRAWN','withdrawn','TRANSFERRED','transferred') GROUP BY e."academicSectionId"`, sectionIds, dateParam) : [];
     const rosterMap = new Map(roster.map(x => [x.sectionId, x]));
     const classes = schedule.map(x => ({ ...x, roster: rosterMap.get(String(x.academicSectionId || "")) || { students: 0, present: 0, absent: 0, late: 0 } }));
-    const homework = teacherId ? await prisma.homework.findMany({ where: { teacher: teacher?.name || undefined, dueDate: { gte: new Date(`${dateParam}T00:00:00Z`), lt: new Date(`${dateParam}T00:00:00Z`).getTime() + 86400000 ? new Date(new Date(`${dateParam}T00:00:00Z`).getTime() + 86400000) : new Date(`${dateParam}T23:59:59Z`) } }, orderBy: { dueDate: "asc" }, take: 20 }) : [];
+    const dayStart = new Date(`${dateParam}T00:00:00Z`);
+    const nextDay = new Date(dayStart.getTime() + 86400000);
+    const homework = teacherId ? await prisma.homework.findMany({ where: { teacher: teacher?.name || undefined, dueDate: { gte: dayStart, lt: nextDay } }, orderBy: { dueDate: "asc" }, take: 20 }) : [];
     return NextResponse.json({ date: dateParam, day, teacher, classes, homework });
   } catch (error) { console.error(error); return NextResponse.json({ error: "Unable to load teacher workspace." }, { status: 500 }); }
 }
