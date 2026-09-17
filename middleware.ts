@@ -19,6 +19,7 @@ const roleRules: Array<[string, string[]]> = [
   ["/teachers", ["SUPER_ADMIN", "ADMIN", "TEACHER"]],
   ["/staff", ["SUPER_ADMIN", "ADMIN"]],
   ["/reports", ["SUPER_ADMIN", "ADMIN", "TEACHER", "ACCOUNTANT", "RECEPTIONIST"]],
+  ["/monitor", ["SUPER_ADMIN", "ADMIN", "TEACHER", "ACCOUNTANT", "RECEPTIONIST"]],
   ["/settings", ["SUPER_ADMIN", "ADMIN"]],
   ["/api/admin", ["SUPER_ADMIN", "ADMIN"]],
   ["/api/admissions", ["SUPER_ADMIN", "ADMIN", "RECEPTIONIST"]],
@@ -36,6 +37,7 @@ const roleRules: Array<[string, string[]]> = [
   ["/api/teachers", ["SUPER_ADMIN", "ADMIN", "TEACHER"]],
   ["/api/staff", ["SUPER_ADMIN", "ADMIN"]],
   ["/api/reports", ["SUPER_ADMIN", "ADMIN", "TEACHER", "ACCOUNTANT", "RECEPTIONIST"]],
+  ["/api/monitor", ["SUPER_ADMIN", "ADMIN", "TEACHER", "ACCOUNTANT", "RECEPTIONIST"]],
   ["/api/settings", ["SUPER_ADMIN", "ADMIN"]],
   ["/api/dashboard", ["SUPER_ADMIN", "ADMIN", "TEACHER", "ACCOUNTANT", "RECEPTIONIST"]],
 ];
