@@ -60,9 +60,7 @@ export async function POST(request: NextRequest) {
     const description = body.description ? String(body.description).trim().slice(0, 2000) : null;
     await prisma.$executeRawUnsafe(`INSERT INTO "MonitorAction" ("id","category","referenceId","title","description","status","assignedTo","dueDate","createdBy","createdAt","updatedAt") VALUES ($1,$2,$3,$4,$5,'OPEN',$6,$7,$8,NOW(),NOW())`, id, category, referenceId, title, description, assignedTo, dueDate, user.id);
     await writeAuditLog({ userId: user.id, action: "CREATE_MONITOR_ACTION", entityType: "MonitorAction", entityId: id, metadata: { category, referenceId, title, assignedTo, dueDate } });
-    if (assignedTo) {
-      await notifyStaffByStaffId(assignedTo, { title: `Monitor action assigned: ${title}`, message: description || "A Monitor follow-up has been assigned to you.", type: "ACTION", href: "/monitor/actions", sourceType: "MonitorAction", sourceId: id });
-    }
+    if (assignedTo) await notifyStaffByStaffId(assignedTo, { title: `Monitor action assigned: ${title}`, message: description || "A Monitor follow-up has been assigned to you.", type: "ACTION", href: "/monitor/actions", sourceType: "MonitorAction", sourceId: id });
     return NextResponse.json({ id, existing: false }, { status: 201 });
   } catch (error) {
     console.error(error);
@@ -90,14 +88,15 @@ export async function PATCH(request: NextRequest) {
     const dueDate = body.dueDate === undefined ? current[0].dueDate : parseDueDate(body.dueDate);
     const resolution = body.resolution === undefined ? current[0].resolution : (body.resolution ? String(body.resolution).trim().slice(0, 2000) : null);
     if ((status === "RESOLVED" || status === "DISMISSED") && !resolution) return NextResponse.json({ error: "Add a resolution or dismissal note before closing the action." }, { status: 400 });
+    const changed = status !== current[0].status || assignedTo !== current[0].assignedTo || (dueDate?.getTime() ?? null) !== (current[0].dueDate?.getTime() ?? null) || resolution !== current[0].resolution;
     await prisma.$executeRawUnsafe(`UPDATE "MonitorAction" SET "status"=$1,"resolution"=$2,"assignedTo"=$3,"dueDate"=$4,"updatedAt"=NOW() WHERE "id"=$5`, status, resolution, assignedTo, dueDate, id);
-    await writeAuditLog({ userId: user.id, action: `MONITOR_ACTION_${status}`, entityType: "MonitorAction", entityId: id, metadata: { resolution, assignedTo, dueDate } });
-    if (assignedTo) {
+    await writeAuditLog({ userId: user.id, action: `MONITOR_ACTION_${status}`, entityType: "MonitorAction", entityId: id, metadata: { resolution, assignedTo, dueDate, changed } });
+    if (assignedTo && changed) {
       const changedOwner = assignedTo !== current[0].assignedTo;
       const message = changedOwner ? `A Monitor follow-up has been assigned to you: ${current[0].title}.` : `Monitor action “${current[0].title}” is now ${status.replace("_", " ").toLowerCase()}.`;
       await notifyStaffByStaffId(assignedTo, { title: changedOwner ? `Monitor action assigned: ${current[0].title}` : `Monitor action updated: ${current[0].title}`, message, type: "ACTION", href: "/monitor/actions", sourceType: "MonitorAction", sourceId: id });
     }
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, changed });
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to update Monitor action." }, { status: 400 });
