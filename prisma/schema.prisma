@@ -7,23 +7,130 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum AdmissionStatus { NEW UNDER_REVIEW DOCUMENTS_PENDING ASSESSMENT_SCHEDULED ASSESSMENT_COMPLETED APPROVED PAYMENT_PENDING ENROLLED REJECTED WAITLISTED WITHDRAWN CANCELLED }
-enum DocumentStatus { PENDING VERIFIED REJECTED }
-enum AssessmentType { TEST INTERVIEW }
-enum DecisionType { APPROVED REJECTED WAITLISTED }
-enum PaymentStatus { PENDING PAID WAIVED REFUNDED }
-enum Gender { MALE FEMALE OTHER }
-enum AttendanceStatus { PRESENT ABSENT LATE EXCUSED }
-enum ExamType { MIDTERM FINAL QUIZ MONTHLY OTHER }
-enum AcademicTerm { FIRST SECOND THIRD }
-enum ExamStatus { DRAFT SCHEDULED PUBLISHED }
-enum ResultGrade { A_PLUS A B_PLUS B C D TRY_AGAIN }
-enum UserRole { SUPER_ADMIN ADMIN TEACHER ACCOUNTANT RECEPTIONIST }
-enum DayOfWeek { MONDAY TUESDAY WEDNESDAY THURSDAY FRIDAY SATURDAY SUNDAY }
-enum HomeworkStatus { DRAFT PUBLISHED CLOSED }
-enum SubmissionStatus { NOT_SUBMITTED SUBMITTED REVIEWED }
-enum FinancePaymentMethod { CASH BANK_TRANSFER CHEQUE OTHER }
-enum FinanceStatus { PENDING PAID CANCELLED }
+enum AdmissionStatus {
+  NEW
+  UNDER_REVIEW
+  DOCUMENTS_PENDING
+  ASSESSMENT_SCHEDULED
+  ASSESSMENT_COMPLETED
+  APPROVED
+  PAYMENT_PENDING
+  ENROLLED
+  REJECTED
+  WAITLISTED
+  WITHDRAWN
+  CANCELLED
+}
+
+enum DocumentStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum AssessmentType {
+  TEST
+  INTERVIEW
+}
+
+enum DecisionType {
+  APPROVED
+  REJECTED
+  WAITLISTED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  WAIVED
+  REFUNDED
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  EXCUSED
+}
+
+enum ExamType {
+  MIDTERM
+  FINAL
+  QUIZ
+  MONTHLY
+  OTHER
+}
+
+enum AcademicTerm {
+  FIRST
+  SECOND
+  THIRD
+}
+
+enum ExamStatus {
+  DRAFT
+  SCHEDULED
+  PUBLISHED
+}
+
+enum ResultGrade {
+  A_PLUS
+  A
+  B_PLUS
+  B
+  C
+  D
+  TRY_AGAIN
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  TEACHER
+  ACCOUNTANT
+  RECEPTIONIST
+}
+
+enum DayOfWeek {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+enum HomeworkStatus {
+  DRAFT
+  PUBLISHED
+  CLOSED
+}
+
+enum SubmissionStatus {
+  NOT_SUBMITTED
+  SUBMITTED
+  REVIEWED
+}
+
+enum FinancePaymentMethod {
+  CASH
+  BANK_TRANSFER
+  CHEQUE
+  OTHER
+}
+
+enum FinanceStatus {
+  PENDING
+  PAID
+  CANCELLED
+}
 
 model AcademicSession {
   id String @id @default(cuid())
@@ -36,6 +143,7 @@ model AcademicSession {
   reportCardReleases ReportCardRelease[]
   createdAt DateTime @default(now())
 }
+
 model AdmissionEnquiry {
   id String @id @default(cuid())
   enquiryNumber String @unique
@@ -53,6 +161,7 @@ model AdmissionEnquiry {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
 model Application {
   id String @id @default(cuid())
   applicationNumber String @unique
@@ -80,6 +189,7 @@ model Application {
   updatedAt DateTime @updatedAt
   @@index([sessionId, status])
 }
+
 model AdmissionDocument {
   id String @id @default(cuid())
   applicationId String
@@ -91,6 +201,7 @@ model AdmissionDocument {
   remarks String?
   application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 }
+
 model Assessment {
   id String @id @default(cuid())
   applicationId String
@@ -102,6 +213,7 @@ model Assessment {
   remarks String?
   application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 }
+
 model AdmissionDecision {
   id String @id @default(cuid())
   applicationId String
@@ -111,6 +223,7 @@ model AdmissionDecision {
   remarks String?
   application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 }
+
 model AdmissionPayment {
   id String @id @default(cuid())
   applicationId String
@@ -124,6 +237,7 @@ model AdmissionPayment {
   paidAt DateTime?
   application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 }
+
 model Enrollment {
   id String @id @default(cuid())
   applicationId String @unique
@@ -141,6 +255,7 @@ model Enrollment {
   homeworkSubmissions HomeworkSubmission[]
   reportCardReleases ReportCardRelease[]
 }
+
 model Attendance {
   id String @id @default(cuid())
   studentId String
@@ -153,6 +268,7 @@ model Attendance {
   @@unique([studentId, date])
   @@index([date, status])
 }
+
 model FeeInvoice {
   id String @id @default(cuid())
   invoiceNumber String @unique
@@ -169,6 +285,7 @@ model FeeInvoice {
   payments FeePayment[]
   @@index([studentId, status])
 }
+
 model FeePayment {
   id String @id @default(cuid())
   invoiceId String
@@ -178,6 +295,7 @@ model FeePayment {
   paidAt DateTime @default(now())
   invoice FeeInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 }
+
 model Donation {
   id String @id @default(cuid())
   donorName String
@@ -194,6 +312,7 @@ model Donation {
   @@index([donationDate, status])
   @@index([purpose, donationDate])
 }
+
 model Expense {
   id String @id @default(cuid())
   category String
@@ -212,6 +331,7 @@ model Expense {
   @@index([category, expenseDate])
   @@index([fundingSource, expenseDate])
 }
+
 model Staff {
   id String @id @default(cuid())
   employeeNumber String @unique
@@ -235,6 +355,7 @@ model Staff {
   @@index([staffType, active])
   @@index([name])
 }
+
 model PayrollRecord {
   id String @id @default(cuid())
   payrollMonth DateTime
@@ -255,6 +376,7 @@ model PayrollRecord {
   @@index([payrollMonth, paymentStatus])
   @@index([staffId, payrollMonth])
 }
+
 model SchoolSetting {
   id String @id @default("default")
   schoolName String
@@ -273,6 +395,7 @@ model SchoolSetting {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
 model Exam {
   id String @id @default(cuid())
   name String
@@ -289,6 +412,7 @@ model Exam {
   @@index([sessionId, status])
   @@index([sessionId, term])
 }
+
 model ExamPaper {
   id String @id @default(cuid())
   examId String
@@ -301,6 +425,7 @@ model ExamPaper {
   results Result[]
   @@unique([examId, className, subject])
 }
+
 model Result {
   id String @id @default(cuid())
   paperId String
@@ -316,6 +441,7 @@ model Result {
   @@unique([paperId, studentId])
   @@index([studentId])
 }
+
 model ResultComponent {
   id String @id @default(cuid())
   resultId String
@@ -325,6 +451,7 @@ model ResultComponent {
   result Result @relation(fields: [resultId], references: [id], onDelete: Cascade)
   @@unique([resultId, name])
 }
+
 model ReportCardSubject {
   id String @id @default(cuid())
   sessionId String
@@ -340,6 +467,7 @@ model ReportCardSubject {
   @@unique([sessionId, className, section, term, subject])
   @@index([sessionId, className, section, term, displayOrder])
 }
+
 model ReportCardComponent {
   id String @id @default(cuid())
   subjectId String
@@ -350,6 +478,7 @@ model ReportCardComponent {
   @@unique([subjectId, name])
   @@index([subjectId, displayOrder])
 }
+
 model ReportCardRelease {
   id String @id @default(cuid())
   studentId String
@@ -365,6 +494,7 @@ model ReportCardRelease {
   @@index([sessionId, releasedAt])
   @@index([studentId, releasedAt])
 }
+
 model CommunicationNotice {
   id String @id @default(cuid())
   title String
@@ -376,6 +506,7 @@ model CommunicationNotice {
   updatedAt DateTime @updatedAt
   @@index([status, createdAt])
 }
+
 model LeaveRequest {
   id String @id @default(cuid())
   studentId String
@@ -391,6 +522,7 @@ model LeaveRequest {
   updatedAt DateTime @updatedAt
   @@index([studentId, status])
 }
+
 model TimetableEntry {
   id String @id @default(cuid())
   dayOfWeek DayOfWeek
@@ -406,6 +538,7 @@ model TimetableEntry {
   updatedAt DateTime @updatedAt
   @@index([className, section, dayOfWeek, period])
 }
+
 model Homework {
   id String @id @default(cuid())
   title String
@@ -423,6 +556,7 @@ model Homework {
   @@index([className, section, dueDate])
   @@index([status, dueDate])
 }
+
 model HomeworkSubmission {
   id String @id @default(cuid())
   homeworkId String
@@ -437,6 +571,7 @@ model HomeworkSubmission {
   @@unique([homeworkId, studentId])
   @@index([studentId, status])
 }
+
 model User {
   id String @id @default(cuid())
   name String
@@ -449,6 +584,7 @@ model User {
   auditLogs AuditLog[]
   reportCardReleases ReportCardRelease[]
 }
+
 model AuditLog {
   id String @id @default(cuid())
   userId String?
