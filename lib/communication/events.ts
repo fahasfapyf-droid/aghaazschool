@@ -10,6 +10,15 @@ export type ParentNotificationEvent = {
   createdBy?: string | null;
 };
 
+export type ApplicationNotificationEvent = {
+  eventKey: string;
+  sourceRef: string;
+  applicationId: string;
+  title: string;
+  message: string;
+  createdBy?: string | null;
+};
+
 /** Queue an event notification for the student's guardian without claiming provider delivery. */
 export async function queueParentNotification(event: ParentNotificationEvent) {
   const enrollment = await prisma.enrollment.findUnique({
@@ -39,11 +48,11 @@ export async function queueParentNotification(event: ParentNotificationEvent) {
     },
   });
 
-  const destinations: Array<{ channel: "IN_APP" | "EMAIL" | "SMS"; destination: string | null; error: string | null }> = [
-    { channel: "IN_APP", destination: null, error: null },
+  const destinations: Array<{ channel: "IN_APP" | "EMAIL" | "SMS"; destination: string | null }> = [
+    { channel: "IN_APP", destination: null },
   ];
-  if (application.guardianEmail?.trim()) destinations.push({ channel: "EMAIL", destination: application.guardianEmail.trim(), error: null });
-  if (application.guardianPhone?.trim()) destinations.push({ channel: "SMS", destination: application.guardianPhone.trim(), error: null });
+  if (application.guardianEmail?.trim()) destinations.push({ channel: "EMAIL", destination: application.guardianEmail.trim() });
+  if (application.guardianPhone?.trim()) destinations.push({ channel: "SMS", destination: application.guardianPhone.trim() });
 
   for (const destination of destinations) {
     await prisma.$executeRawUnsafe(
@@ -57,6 +66,47 @@ export async function queueParentNotification(event: ParentNotificationEvent) {
       event.eventKey,
       event.sourceRef,
       event.createdBy ?? null,
+    );
+  }
+
+  return { created: true, noticeId: notice.id, channelCount: destinations.length };
+}
+
+/** Queue an event notification directly for an admission applicant's guardian. */
+export async function queueApplicationNotification(event: ApplicationNotificationEvent) {
+  const application = await prisma.application.findUnique({ where: { id: event.applicationId } });
+  if (!application) return { created: false, reason: "APPLICATION_NOT_FOUND" as const };
+  if (!application.guardianName?.trim()) return { created: false, reason: "GUARDIAN_NOT_FOUND" as const };
+
+  const existing = await prisma.$queryRawUnsafe<{ id: string }[]>(
+    `SELECT "id" FROM "CommunicationDelivery" WHERE "eventKey"=$1 AND "sourceRef"=$2 AND "recipientType"='PARENT' AND "recipientRef"=$3 LIMIT 1`,
+    event.eventKey,
+    event.sourceRef,
+    application.id,
+  );
+  if (existing.length) return { created: false, reason: "ALREADY_QUEUED" as const };
+
+  const notice = await prisma.communicationNotice.create({
+    data: {
+      title: event.title.trim(),
+      message: event.message.trim(),
+      audience: "PARENTS",
+      status: "PUBLISHED",
+      publishedAt: new Date(),
+    },
+  });
+
+  const destinations: Array<{ channel: "IN_APP" | "EMAIL" | "SMS"; destination: string | null }> = [
+    { channel: "IN_APP", destination: null },
+  ];
+  if (application.guardianEmail?.trim()) destinations.push({ channel: "EMAIL", destination: application.guardianEmail.trim() });
+  if (application.guardianPhone?.trim()) destinations.push({ channel: "SMS", destination: application.guardianPhone.trim() });
+
+  for (const destination of destinations) {
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO "CommunicationDelivery" ("id","noticeId","channel","audience","recipientType","recipientRef","recipientName","destination","status","eventKey","sourceRef","createdBy","createdAt","updatedAt") VALUES ($1,$2,$3,'PARENTS','PARENT',$4,$5,$6,'QUEUED',$7,$8,$9,NOW(),NOW())`,
+      randomUUID(), notice.id, destination.channel, application.id, application.guardianName.trim(), destination.destination,
+      event.eventKey, event.sourceRef, event.createdBy ?? null,
     );
   }
 
