@@ -19,6 +19,29 @@ export type ApplicationNotificationEvent = {
   createdBy?: string | null;
 };
 
+type NotificationPreference = {
+  inAppEnabled: boolean;
+  emailEnabled: boolean;
+  smsEnabled: boolean;
+  active: boolean;
+};
+
+async function getNotificationPreference(eventKey: string): Promise<NotificationPreference> {
+  const rows = await prisma.$queryRawUnsafe<NotificationPreference[]>(
+    `SELECT "inAppEnabled","emailEnabled","smsEnabled","active" FROM "CommunicationPreference" WHERE "eventKey"=$1 LIMIT 1`,
+    eventKey,
+  );
+  return rows[0] ?? { inAppEnabled: true, emailEnabled: true, smsEnabled: true, active: true };
+}
+
+function enabledDestinations(preference: NotificationPreference, email: string | null | undefined, phone: string | null | undefined) {
+  const destinations: Array<{ channel: "IN_APP" | "EMAIL" | "SMS"; destination: string | null }> = [];
+  if (preference.active && preference.inAppEnabled) destinations.push({ channel: "IN_APP", destination: null });
+  if (preference.active && preference.emailEnabled && email?.trim()) destinations.push({ channel: "EMAIL", destination: email.trim() });
+  if (preference.active && preference.smsEnabled && phone?.trim()) destinations.push({ channel: "SMS", destination: phone.trim() });
+  return destinations;
+}
+
 /** Queue an event notification for the student's guardian without claiming provider delivery. */
 export async function queueParentNotification(event: ParentNotificationEvent) {
   const enrollment = await prisma.enrollment.findUnique({
@@ -38,6 +61,10 @@ export async function queueParentNotification(event: ParentNotificationEvent) {
   );
   if (existing.length) return { created: false, reason: "ALREADY_QUEUED" as const };
 
+  const preference = await getNotificationPreference(event.eventKey);
+  const destinations = enabledDestinations(preference, application.guardianEmail, application.guardianPhone);
+  if (!destinations.length) return { created: false, reason: "DISABLED" as const };
+
   const notice = await prisma.communicationNotice.create({
     data: {
       title: event.title.trim(),
@@ -48,24 +75,11 @@ export async function queueParentNotification(event: ParentNotificationEvent) {
     },
   });
 
-  const destinations: Array<{ channel: "IN_APP" | "EMAIL" | "SMS"; destination: string | null }> = [
-    { channel: "IN_APP", destination: null },
-  ];
-  if (application.guardianEmail?.trim()) destinations.push({ channel: "EMAIL", destination: application.guardianEmail.trim() });
-  if (application.guardianPhone?.trim()) destinations.push({ channel: "SMS", destination: application.guardianPhone.trim() });
-
   for (const destination of destinations) {
     await prisma.$executeRawUnsafe(
       `INSERT INTO "CommunicationDelivery" ("id","noticeId","channel","audience","recipientType","recipientRef","recipientName","destination","status","eventKey","sourceRef","createdBy","createdAt","updatedAt") VALUES ($1,$2,$3,'PARENTS','PARENT',$4,$5,$6,'QUEUED',$7,$8,$9,NOW(),NOW())`,
-      randomUUID(),
-      notice.id,
-      destination.channel,
-      application.id,
-      application.guardianName.trim(),
-      destination.destination,
-      event.eventKey,
-      event.sourceRef,
-      event.createdBy ?? null,
+      randomUUID(), notice.id, destination.channel, application.id, application.guardianName.trim(), destination.destination,
+      event.eventKey, event.sourceRef, event.createdBy ?? null,
     );
   }
 
@@ -86,6 +100,10 @@ export async function queueApplicationNotification(event: ApplicationNotificatio
   );
   if (existing.length) return { created: false, reason: "ALREADY_QUEUED" as const };
 
+  const preference = await getNotificationPreference(event.eventKey);
+  const destinations = enabledDestinations(preference, application.guardianEmail, application.guardianPhone);
+  if (!destinations.length) return { created: false, reason: "DISABLED" as const };
+
   const notice = await prisma.communicationNotice.create({
     data: {
       title: event.title.trim(),
@@ -95,12 +113,6 @@ export async function queueApplicationNotification(event: ApplicationNotificatio
       publishedAt: new Date(),
     },
   });
-
-  const destinations: Array<{ channel: "IN_APP" | "EMAIL" | "SMS"; destination: string | null }> = [
-    { channel: "IN_APP", destination: null },
-  ];
-  if (application.guardianEmail?.trim()) destinations.push({ channel: "EMAIL", destination: application.guardianEmail.trim() });
-  if (application.guardianPhone?.trim()) destinations.push({ channel: "SMS", destination: application.guardianPhone.trim() });
 
   for (const destination of destinations) {
     await prisma.$executeRawUnsafe(
