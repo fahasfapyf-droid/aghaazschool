@@ -1,0 +1,14 @@
+"use client";
+import Link from "next/link";
+import { useEffect, useState } from "react";
+
+type Action = { id:string; category:string; referenceId:string; title:string; description:string|null; status:string; assignedTo:string|null; dueDate:string|null; resolution:string|null; createdAt:string; updatedAt:string };
+const statuses=["OPEN","IN_PROGRESS","RESOLVED","DISMISSED"];
+
+export default function MonitorActions(){
+ const [actions,setActions]=useState<Action[]>([]); const [filter,setFilter]=useState("OPEN"); const [error,setError]=useState(""); const [saving,setSaving]=useState("");
+ const load=()=>fetch(`/api/monitor/actions?status=${filter}`,{cache:"no-store"}).then(async r=>{const p=await r.json();if(!r.ok)throw new Error(p.error||"Unable to load actions.");return p.actions as Action[]}).then(setActions).catch(e=>setError(e.message));
+ useEffect(load,[filter]);
+ const update=async(id:string,status:string)=>{setSaving(id);setError("");try{const r=await fetch("/api/monitor/actions",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({id,status})});const p=await r.json();if(!r.ok)throw new Error(p.error||"Unable to update action.");await load()}catch(e){setError(e instanceof Error?e.message:"Unable to update action.")}finally{setSaving("")}};
+ return <main className="container"><header className="admissions-header"><div><div className="eyebrow">Aghaaz / Operations</div><h1>Monitor Actions</h1><p>Turn an exception into an owned, auditable follow-up.</p></div><Link className="button" href="/monitor">Monitor</Link></header>{error&&<div className="empty-state">{error}</div>}<section className="admission-stats">{statuses.map(s=><button key={s} className="admission-stat" onClick={()=>setFilter(s)}><span>{s.replace("_"," ")}</span><strong>{filter===s?actions.length:""}</strong></button>)}</section><section className="applications-card"><div className="table-toolbar"><div><h2>Action queue</h2><p>Open and resolved follow-ups remain separate from the source exception.</p></div></div>{actions.length===0?<div className="empty-state">No actions in this status.</div>:actions.map(a=><div className="activity-row" key={a.id}><span className="activity-dot"/><div style={{flex:1}}><strong>{a.title}</strong><small>{a.category} · reference {a.referenceId.slice(0,12)}</small>{a.description&&<small>{a.description}</small>}{a.dueDate&&<small>Due {new Date(a.dueDate).toLocaleDateString()}</small>}</div>{a.status==="OPEN"&&<button className="row-action" disabled={saving===a.id} onClick={()=>update(a.id,"IN_PROGRESS")}>{saving===a.id?"Saving…":"Start →"}</button>}{a.status==="IN_PROGRESS"&&<button className="row-action" disabled={saving===a.id} onClick={()=>update(a.id,"RESOLVED")}>{saving===a.id?"Saving…":"Resolve →"}</button>}{a.status==="RESOLVED"&&<span className="row-action">Resolved</span>}</div>)}</section></main>;
+}
