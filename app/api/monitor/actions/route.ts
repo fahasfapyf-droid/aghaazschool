@@ -17,18 +17,17 @@ function parseDueDate(value: unknown) {
   return date;
 }
 
-async function authorized(request: NextRequest, action: string) {
+async function authorized(request: NextRequest, action: "access" | "create" | "update") {
   const user = await getCurrentUser();
   if (!user) return { error: NextResponse.json({ error: "Authentication required." }, { status: 401 }) };
-  if (!roleAllowed(user.role, action === "read" ? [...ROLES] : [...MUTATION_ROLES])) {
-    return { error: NextResponse.json({ error: `You do not have permission to ${action} Monitor actions.` }, { status: 403 }) };
-  }
+  const roles = action === "access" ? [...ROLES] : [...MUTATION_ROLES];
+  if (!roleAllowed(user.role, roles)) return { error: NextResponse.json({ error: `You do not have permission to ${action} Monitor actions.` }, { status: 403 }) };
   return { user };
 }
 
 export async function GET(request: NextRequest) {
   const auth = await authorized(request, "access");
-  if (auth.error) return auth.error;
+  if ("error" in auth) return auth.error;
 
   const status = request.nextUrl.searchParams.get("status");
   const params: unknown[] = [];
@@ -43,7 +42,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const auth = await authorized(request, "create");
-  if (auth.error) return auth.error;
+  if ("error" in auth) return auth.error;
   const user = auth.user;
 
   try {
@@ -76,7 +75,7 @@ export async function POST(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   const auth = await authorized(request, "update");
-  if (auth.error) return auth.error;
+  if ("error" in auth) return auth.error;
   const user = auth.user;
 
   try {
