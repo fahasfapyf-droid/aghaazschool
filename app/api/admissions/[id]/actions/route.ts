@@ -21,13 +21,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const user = await getCurrentUser();
     if (!user) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
     if (!roleAllowed(user.role, [...staffRoles])) return NextResponse.json({ error: "You do not have permission to modify admissions." }, { status: 403 });
-
     const { id } = await params;
     const parsed = actionSchema.safeParse(await request.json());
     if (!parsed.success) return NextResponse.json({ error: "Invalid action", details: parsed.error.flatten() }, { status: 400 });
     const input = parsed.data;
     const context = requestAuditContext(request);
-
     const application = await prisma.application.findUnique({ where: { id } });
     if (!application) return NextResponse.json({ error: "Application not found" }, { status: 404 });
 
@@ -91,15 +89,29 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       if (!latest) throw new Error("APPLICATION_NOT_FOUND");
       if (latest.status !== "APPROVED") throw new Error(`APPLICATION_STATUS_CHANGED:${latest.status}`);
       if (latest.enrollment) throw new Error("ALREADY_ENROLLED");
-      const created = await tx.enrollment.create({ data: { applicationId: id, studentId: input.studentId, admissionNumber: input.admissionNumber, className: input.className, section: input.section } });
+      const className = input.className.trim();
+      const sectionName = input.section?.trim() || null;
+      const grade = await tx.academicGrade.findFirst({ where: { sessionId: latest.sessionId, active: true, OR: [{ name: className }, { code: className }] }, select: { id: true, name: true, sessionId: true } });
+      if (!grade) throw new Error("ACADEMIC_GRADE_NOT_FOUND");
+      let sectionId: string | null = null;
+      let resolvedSection = sectionName;
+      if (sectionName) {
+        const section = await tx.academicSection.findFirst({ where: { gradeId: grade.id, name: sectionName, active: true }, select: { id: true, name: true } });
+        if (!section) throw new Error("ACADEMIC_SECTION_NOT_FOUND");
+        sectionId = section.id;
+        resolvedSection = section.name;
+      }
+      const created = await tx.enrollment.create({ data: { applicationId: id, studentId: input.studentId, admissionNumber: input.admissionNumber, className: grade.name, section: resolvedSection, academicSessionId: grade.sessionId, academicGradeId: grade.id, academicSectionId: sectionId } });
       await tx.application.update({ where: { id }, data: { status: "ENROLLED" } });
       return created;
     });
-    await writeAuditLog({ userId: user.id, action: "ADMISSION_ENROLLED", entityType: "Enrollment", entityId: enrollment.id, metadata: { applicationId: id, studentId: input.studentId, admissionNumber: input.admissionNumber, className: input.className, section: input.section ?? null }, context });
+    await writeAuditLog({ userId: user.id, action: "ADMISSION_ENROLLED", entityType: "Enrollment", entityId: enrollment.id, metadata: { applicationId: id, studentId: input.studentId, admissionNumber: input.admissionNumber, className: enrollment.className, section: enrollment.section ?? null, academicSessionId: enrollment.academicSessionId, academicGradeId: enrollment.academicGradeId, academicSectionId: enrollment.academicSectionId }, context });
     return NextResponse.json(enrollment, { status: 201 });
   } catch (error) {
     if (error instanceof Error && error.message === "APPLICATION_NOT_FOUND") return NextResponse.json({ error: "Application not found" }, { status: 404 });
     if (error instanceof Error && error.message === "ALREADY_ENROLLED") return NextResponse.json({ error: "Application is already enrolled." }, { status: 409 });
+    if (error instanceof Error && error.message === "ACADEMIC_GRADE_NOT_FOUND") return NextResponse.json({ error: "No active academic grade matches this class for the application session." }, { status: 400 });
+    if (error instanceof Error && error.message === "ACADEMIC_SECTION_NOT_FOUND") return NextResponse.json({ error: "The selected section does not belong to the selected academic grade or is inactive." }, { status: 400 });
     if (error instanceof Error && error.message.startsWith("APPLICATION_STATUS_CHANGED:")) return NextResponse.json({ error: `Application changed concurrently; current status is ${error.message.split(":")[1]}. Please retry.` }, { status: 409 });
     console.error(error);
     return NextResponse.json({ error: "Unable to complete admission action" }, { status: 500 });
