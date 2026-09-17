@@ -1,3 +1,5 @@
+import { createHmac } from "node:crypto";
+
 export type DeliveryChannel = "IN_APP" | "EMAIL" | "SMS";
 
 export type ProviderPayload = {
@@ -23,10 +25,16 @@ export class DeliveryProviderError extends Error {
 }
 
 async function webhookProvider(url: string, payload: ProviderPayload, providerName: string): Promise<ProviderResult> {
+  const body = JSON.stringify(payload);
+  const secret = process.env.COMMUNICATION_WEBHOOK_SECRET;
+  const signature = secret ? createHmac("sha256", secret).update(body).digest("hex") : null;
   const response = await fetch(url, {
     method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(payload),
+    headers: {
+      "content-type": "application/json",
+      ...(signature ? { "x-aghaaz-signature": signature } : {}),
+    },
+    body,
     cache: "no-store",
   });
   if (!response.ok) throw new DeliveryProviderError(`${providerName} provider returned HTTP ${response.status}.`);
@@ -53,6 +61,10 @@ export async function sendDelivery(payload: ProviderPayload): Promise<ProviderRe
 
   if (!url) {
     throw new DeliveryProviderError(`${payload.channel} provider is not configured.`);
+  }
+
+  if (payload.channel !== "IN_APP" && !process.env.COMMUNICATION_WEBHOOK_SECRET) {
+    throw new DeliveryProviderError("Communication webhook secret is not configured.");
   }
 
   return webhookProvider(url, payload, payload.channel === "EMAIL" ? "EMAIL_WEBHOOK" : "SMS_WEBHOOK");
