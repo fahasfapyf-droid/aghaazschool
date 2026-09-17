@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 
-type Student = { id: string; studentName: string; guardianName?: string; guardianEmail?: string | null; guardianPhone?: string | null; enrollment?: { id: string; status: string; className?: string | null; section?: string | null }; registry?: { grNumber: string } };
+type Student = { id: string; studentName: string; guardianName?: string; guardianEmail?: string | null; guardianPhone?: string | null; enrollment?: { id: string; status: string; className?: string | null; section?: string | null }; registry?: { grNumber: string }; academic?: { gradeName?: string | null; sectionName?: string | null } };
 
 export default function ParentAccessPage() {
   const [query, setQuery] = useState("");
