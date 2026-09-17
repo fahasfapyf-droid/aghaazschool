@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getCurrentUser, roleAllowed } from "@/lib/auth";
 import { requestAuditContext, writeAuditLog } from "@/lib/audit";
+import { generateGrNumber } from "@/lib/student-registry";
+import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 
 const actionSchema = z.discriminatedUnion("action", [
@@ -102,11 +103,15 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         resolvedSection = section.name;
       }
       const created = await tx.enrollment.create({ data: { applicationId: id, studentId: input.studentId, admissionNumber: input.admissionNumber, className: grade.name, section: resolvedSection, academicSessionId: grade.sessionId, academicGradeId: grade.id, academicSectionId: sectionId } });
+      const grNumber = await generateGrNumber(tx);
+      const registryRows = await tx.$queryRawUnsafe<{ id: string }[]>(`INSERT INTO "StudentRegistry" ("id","enrollmentId","grNumber") VALUES ($1,$2,$3) RETURNING "id"`, randomUUID(), created.id, grNumber);
+      if (!registryRows[0]) throw new Error("STUDENT_REGISTRY_CREATE_FAILED");
+      await tx.$executeRawUnsafe(`INSERT INTO "EnrollmentHistory" ("id","enrollmentId","action","academicSessionId","academicSessionName","academicGradeId","academicGradeName","academicSectionId","academicSectionName","className","section","status","effectiveAt","note","createdBy") VALUES ($1,$2,'ENROLLED',$3,$4,$5,$6,$7,$8,$9,$10,'ACTIVE',CURRENT_TIMESTAMP,$11,$12)`, randomUUID(), created.id, grade.sessionId, null, grade.id, grade.name, sectionId, resolvedSection, grade.name, resolvedSection, "Admission enrollment", user.id);
       await tx.application.update({ where: { id }, data: { status: "ENROLLED" } });
-      return created;
+      return { enrollment: created, grNumber };
     });
-    await writeAuditLog({ userId: user.id, action: "ADMISSION_ENROLLED", entityType: "Enrollment", entityId: enrollment.id, metadata: { applicationId: id, studentId: input.studentId, admissionNumber: input.admissionNumber, className: enrollment.className, section: enrollment.section ?? null, academicSessionId: enrollment.academicSessionId, academicGradeId: enrollment.academicGradeId, academicSectionId: enrollment.academicSectionId }, context });
-    return NextResponse.json(enrollment, { status: 201 });
+    await writeAuditLog({ userId: user.id, action: "ADMISSION_ENROLLED", entityType: "Enrollment", entityId: enrollment.enrollment.id, metadata: { applicationId: id, studentId: input.studentId, admissionNumber: input.admissionNumber, grNumber: enrollment.grNumber, className: enrollment.enrollment.className, section: enrollment.enrollment.section ?? null, academicSessionId: enrollment.enrollment.academicSessionId, academicGradeId: enrollment.enrollment.academicGradeId, academicSectionId: enrollment.enrollment.academicSectionId }, context });
+    return NextResponse.json({ ...enrollment.enrollment, grNumber: enrollment.grNumber }, { status: 201 });
   } catch (error) {
     if (error instanceof Error && error.message === "APPLICATION_NOT_FOUND") return NextResponse.json({ error: "Application not found" }, { status: 404 });
     if (error instanceof Error && error.message === "ALREADY_ENROLLED") return NextResponse.json({ error: "Application is already enrolled." }, { status: 409 });
