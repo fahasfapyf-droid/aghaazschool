@@ -61,6 +61,15 @@ export async function PATCH(request: NextRequest) {
     if (existing.status !== "PENDING") return NextResponse.json({ error: "Only pending requests can be reviewed." }, { status: 409 });
     const row = await prisma.leaveRequest.update({ where: { id: body.id }, data: { status, reviewedBy: auth.user.id, reviewedAt: new Date(), reviewRemarks: typeof body.reviewRemarks === "string" ? body.reviewRemarks.trim() || null : null } });
     const student = await prisma.enrollment.findUnique({ where: { id: row.studentId }, include: { application: true } });
+    let suppressedAttendanceAlerts = 0;
+    if (status === "APPROVED" && student) {
+      const cancelled = await prisma.$queryRawUnsafe<Array<{ id: string }>>(
+        `UPDATE "CommunicationDelivery" SET "status"='CANCELLED', "error"='Suppressed because the absence date is covered by approved leave.', "updatedAt"=NOW() WHERE "status"='QUEUED' AND "eventKey"='ATTENDANCE_ABSENT' AND "recipientType"='PARENT' AND "recipientRef"=$1 AND "sourceRef" LIKE $2 RETURNING "id"`,
+        student.application.id,
+        `${row.studentId}:%`,
+      );
+      suppressedAttendanceAlerts = cancelled.length;
+    }
     const notification = student ? await queueParentNotification({
       eventKey: status === "APPROVED" ? "LEAVE_APPROVED" : "LEAVE_REJECTED",
       sourceRef: row.id,
@@ -69,8 +78,8 @@ export async function PATCH(request: NextRequest) {
       message: `The leave request for ${student.application.studentName} from ${row.startDate.toLocaleDateString("en-GB")} to ${row.endDate.toLocaleDateString("en-GB")} was ${status.toLowerCase()}.${row.reviewRemarks ? ` School note: ${row.reviewRemarks}` : ""}`,
       createdBy: auth.user.id,
     }) : { created: false, reason: "ENROLLMENT_NOT_FOUND" as const };
-    await writeAuditLog({ userId: auth.user.id, action: status === "APPROVED" ? "LEAVE_REQUEST_APPROVED" : "LEAVE_REQUEST_REJECTED", entityType: "LeaveRequest", entityId: row.id, metadata: { studentId: row.studentId, previousStatus: existing.status, status: row.status, notification }, context });
-    return NextResponse.json({ ...row, notification });
+    await writeAuditLog({ userId: auth.user.id, action: status === "APPROVED" ? "LEAVE_REQUEST_APPROVED" : "LEAVE_REQUEST_REJECTED", entityType: "LeaveRequest", entityId: row.id, metadata: { studentId: row.studentId, previousStatus: existing.status, status: row.status, notification, suppressedAttendanceAlerts }, context });
+    return NextResponse.json({ ...row, notification, suppressedAttendanceAlerts });
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: "Unable to review leave request." }, { status: 500 });
