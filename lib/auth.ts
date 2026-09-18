@@ -6,7 +6,7 @@ import type { UserRole } from "@prisma/client";
 export const SESSION_COOKIE = "aghaaz_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 8;
 
-type SessionPayload = { userId: string; role: UserRole; iat: number; exp: number };
+type SessionPayload = { userId: string; role: UserRole; mustChangePassword: boolean; iat: number; exp: number };
 
 function secret() {
   const value = process.env.AUTH_SECRET;
@@ -40,11 +40,12 @@ export function verifyPassword(password: string, stored: string) {
   }
 }
 
-export function createSessionToken(userId: string, role: UserRole) {
+export function createSessionToken(userId: string, role: UserRole, mustChangePassword = false) {
   const iat = Date.now();
   const payload: SessionPayload = {
     userId,
     role,
+    mustChangePassword,
     iat,
     exp: Math.floor(iat / 1000) + SESSION_TTL_SECONDS,
   };
@@ -74,7 +75,7 @@ export async function getCurrentUser() {
   if (!session) return null;
   const user = await prisma.user.findFirst({
     where: { id: session.userId, active: true },
-    select: { id: true, name: true, phone: true, email: true, role: true, active: true, updatedAt: true },
+    select: { id: true, name: true, phone: true, email: true, role: true, active: true, mustChangePassword: true, updatedAt: true },
   });
   if (!user || session.iat < user.updatedAt.getTime()) return null;
   return user;
