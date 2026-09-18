@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, roleAllowed } from "@/lib/auth";
+import { getTeacherSectionIds } from "@/lib/student-access";
 
 const ROLES = ["SUPER_ADMIN", "ADMIN", "TEACHER", "ACCOUNTANT", "RECEPTIONIST"] as const;
 
@@ -9,6 +10,8 @@ export async function GET() {
     const user = await getCurrentUser();
     if (!user) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
     if (!roleAllowed(user.role, [...ROLES])) return NextResponse.json({ error: "You do not have permission to access Monitor." }, { status: 403 });
+    const teacherSectionIds = user.role === "TEACHER" ? await getTeacherSectionIds(user.id) : null;
+    if (user.role === "TEACHER" && teacherSectionIds?.length === 0) return NextResponse.json({ generatedAt: new Date().toISOString(), summary: { activeStudents: 0, attendanceExceptions: 0, overdueFees: 0, failingResults: 0, overdueHomework: 0, activeAdmissions: 0, staffAttendanceExceptions: 0 }, exceptions: { attendance: [], fees: [], results: [], homework: [], staffAttendance: [] } });
 
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -17,9 +20,9 @@ export async function GET() {
     attendanceStart.setDate(attendanceStart.getDate() - 29);
 
     const [students, attendance, overdueInvoices, recentResults, homework, activeApplications, staffAttendance] = await Promise.all([
-      prisma.enrollment.count({ where: { status: "active" } }),
+      prisma.enrollment.count({ where: { status: { in: ["active", "ACTIVE", "enrolled", "ENROLLED"] }, ...(teacherSectionIds ? { academicSectionId: { in: teacherSectionIds } } : {}) } }),
       prisma.attendance.findMany({
-        where: { date: { gte: attendanceStart, lt: new Date(todayStart.getTime() + 24 * 60 * 60 * 1000) }, student: { status: "active" } },
+        where: { date: { gte: attendanceStart, lt: new Date(todayStart.getTime() + 24 * 60 * 60 * 1000) }, student: { status: { in: ["active", "ACTIVE", "enrolled", "ENROLLED"] }, ...(teacherSectionIds ? { academicSectionId: { in: teacherSectionIds } } : {}) } },
         select: { studentId: true, status: true },
       }),
       prisma.feeInvoice.findMany({
