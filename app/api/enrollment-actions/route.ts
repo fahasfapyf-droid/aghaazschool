@@ -92,6 +92,7 @@ export async function POST(request: NextRequest) {
       if (target.grade.sessionId !== input.targetSessionId || target.gradeId !== input.targetGradeId) throw new Error("TRANSFER_TARGET_MISMATCH");
 
       if (target.capacity !== null) {
+        await tx.$queryRawUnsafe(`SELECT "id" FROM "AcademicSection" WHERE "id"=$1 FOR UPDATE`, target.id);
         const occupancy = await tx.enrollment.count({
           where: {
             academicSectionId: target.id,

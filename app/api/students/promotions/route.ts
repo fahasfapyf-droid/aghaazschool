@@ -78,16 +78,17 @@ export async function POST(request: NextRequest) {
     `, ids, input.sourceSessionId, input.sourceGradeId, input.sourceSectionId);
     if (selected.length !== ids.length) return NextResponse.json({ error: "One or more selected students are no longer active in the source section. Refresh and review the list before promoting." }, { status: 409 });
 
-    const occupancyRows = await prisma.$queryRawUnsafe<{ count: bigint }[]>(`
-      SELECT COUNT(*)::bigint AS count FROM "Enrollment"
-      WHERE "academicSectionId"=$1 AND lower("status") IN ('active','enrolled') AND "id" <> ALL($2::text[])
-    `, target.sectionId, ids);
-    const occupancy = Number(occupancyRows[0]?.count || 0);
-    if (target.capacity !== null && occupancy + selected.length > Number(target.capacity)) {
-      return NextResponse.json({ error: `Target section has capacity ${target.capacity}; ${occupancy} places are currently occupied and ${selected.length} students are selected.` }, { status: 409 });
-    }
-
     await prisma.$transaction(async tx => {
+      await tx.$queryRawUnsafe(`SELECT "id" FROM "AcademicSection" WHERE "id"=$1 FOR UPDATE`, target.sectionId);
+      const occupancyRows = await tx.$queryRawUnsafe<{ count: bigint }[]>(`
+        SELECT COUNT(*)::bigint AS count FROM "Enrollment"
+        WHERE "academicSectionId"=$1 AND lower("status") IN ('active','enrolled') AND "id" <> ALL($2::text[])
+      `, target.sectionId, ids);
+      const occupancy = Number(occupancyRows[0]?.count || 0);
+      if (target.capacity !== null && occupancy + selected.length > Number(target.capacity)) {
+        throw new Error(`TARGET_SECTION_AT_CAPACITY:${target.capacity}:${occupancy}:${selected.length}`);
+      }
+
       for (const student of selected) {
         const beforeRows = await tx.$queryRawUnsafe<Array<{ sessionId: string | null; sessionName: string | null; gradeId: string | null; gradeName: string | null; sectionId: string | null; sectionName: string | null }>>(`
           SELECT e."academicSessionId" AS "sessionId", a."name" AS "sessionName", e."academicGradeId" AS "gradeId", g."name" AS "gradeName",
@@ -118,6 +119,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ ok: true, promoted: selected.length, target, students: selected.map(x => ({ enrollmentId: x.enrollmentId, studentName: x.studentName, grNumber: x.grNumber })) }, { status: 200 });
   } catch (error) {
+    if (error instanceof Error && error.message.startsWith("TARGET_SECTION_AT_CAPACITY:")) { const [, capacity, occupancy, selected] = error.message.split(":"); return NextResponse.json({ error: `Target section has capacity ${capacity}; ${occupancy} places are currently occupied and ${selected} students are selected.` }, { status: 409 }); }
     if (error instanceof z.ZodError) return NextResponse.json({ error: "Invalid promotion request.", details: error.flatten() }, { status: 400 });
     console.error(error);
     return NextResponse.json({ error: "Unable to complete batch promotion. No partial promotion was committed." }, { status: 400 });
