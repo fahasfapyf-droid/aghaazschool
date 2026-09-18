@@ -65,13 +65,16 @@ export async function GET(req: NextRequest) {
 
   const student = await prisma.enrollment.findUnique({
     where: { id: studentId },
-    include: { application: { include: { session: true } } },
+    include: { application: { include: { session: true } }, academicSession: true },
   });
   if (!student) return NextResponse.json({ error: "Student not found" }, { status: 404 });
+  if (!student.academicSessionId || !student.academicSession) return NextResponse.json({ error: "Student is not placed in an academic session" }, { status: 409 });
 
+  const currentSessionId = student.academicSessionId;
+  const currentSession = student.academicSession;
   const [release, gradingBands] = await Promise.all([
-    findReportCardRelease(studentId, student.application.sessionId),
-    getGradingBands(student.application.sessionId),
+    findReportCardRelease(studentId, currentSessionId),
+    getGradingBands(currentSessionId),
   ]);
   if (release) return NextResponse.json({ ...(release.snapshot as Record<string, unknown>), released: true, release: { id: release.id, snapshotHash: release.snapshotHash, releasedBy: release.releasedBy, releasedAt: release.releasedAt } });
 
@@ -82,12 +85,12 @@ export async function GET(req: NextRequest) {
       orderBy: [{ paper: { exam: { startDate: "asc" } } }, { paper: { subject: "asc" } }],
     }),
     prisma.reportCardSubject.findMany({
-      where: { sessionId: student.application.sessionId, className: student.className, OR: [{ section: student.section || null }, { section: null }] },
+      where: { sessionId: currentSessionId, className: student.className, OR: [{ section: student.section || null }, { section: null }] },
       include: { components: { orderBy: { displayOrder: "asc" } } },
       orderBy: [{ term: "asc" }, { displayOrder: "asc" }, { subject: "asc" }],
     }),
     prisma.attendance.findMany({
-      where: { studentId, date: { gte: student.application.session.startDate, lte: student.application.session.endDate } },
+      where: { studentId, date: { gte: currentSession.startDate, lte: currentSession.endDate } },
       orderBy: { date: "asc" },
     }),
   ]);
@@ -168,7 +171,7 @@ export async function GET(req: NextRequest) {
 
   let position: number | null = null;
   if (annualComplete && totalMarks > 0) {
-    const classmates = await prisma.enrollment.findMany({ where: { className: student.className, section: student.section, application: { sessionId: student.application.sessionId } }, select: { id: true } });
+    const classmates = await prisma.enrollment.findMany({ where: { className: student.className, section: student.section, academicSessionId: currentSessionId }, select: { id: true } });
     const classmateIds = classmates.map(item => item.id);
     const classResults = await prisma.result.findMany({
       where: { studentId: { in: classmateIds }, paper: { className: student.className, exam: { sessionId: student.application.sessionId, status: "PUBLISHED" } } },
@@ -196,7 +199,7 @@ export async function GET(req: NextRequest) {
   }
 
   return NextResponse.json({
-    student: { id: student.id, name: student.application.studentName, guardianName: student.application.guardianName, guardianPhone: student.application.guardianPhone, admissionNumber: student.admissionNumber, className: student.className, section: student.section, session: student.application.session.name },
+    student: { id: student.id, name: student.application.studentName, guardianName: student.application.guardianName, guardianPhone: student.application.guardianPhone, admissionNumber: student.admissionNumber, className: student.className, section: student.section, session: currentSession.name },
     terms: termReports,
     final: { totalMarks, obtainedMarks, percentage, grade: annualComplete ? resolveGrade(gradingBands, percentage!) : null, position, complete: annualComplete, enteredSubjects: annualEnteredSubjects, expectedSubjects: annualExpectedSubjects },
     attendance: { ...attendanceSummary, percentage: attendanceSummary.total ? (attendanceSummary.present / attendanceSummary.total) * 100 : 0 },
