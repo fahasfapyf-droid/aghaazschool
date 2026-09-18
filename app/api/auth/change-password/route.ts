@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Current password is incorrect." }, { status: 400 });
     }
 
-    await prisma.user.update({ where: { id: user.id }, data: { passwordHash: createPasswordHash(newPassword) } });
+    await prisma.user.update({ where: { id: user.id }, data: { passwordHash: createPasswordHash(newPassword), mustChangePassword: false } });
     await writeAuditLog({ userId: user.id, action: "PASSWORD_CHANGED", entityType: "User", entityId: user.id, context: requestAuditContext(request) });
     const response = NextResponse.json({ ok: true, message: "Password changed. Please sign in again." });
     response.cookies.set(SESSION_COOKIE, "", { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge: 0 });
