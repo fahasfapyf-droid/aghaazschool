@@ -31,11 +31,12 @@ export async function POST(req: NextRequest) {
     const paper = await prisma.examPaper.findUnique({ where: { id: body.paperId }, include: { exam: true } });
     if (!paper) return NextResponse.json({ error: "Exam paper not found" }, { status: 404 });
     if (paper.exam.status === "PUBLISHED") return NextResponse.json({ error: "This examination is published and its results are locked. An administrator must unpublish it before corrections can be made." }, { status: 409 });
-    const student = await prisma.enrollment.findUnique({ where: { id: body.studentId }, include: { application: { select: { sessionId: true } } } });
+    const student = await prisma.enrollment.findUnique({ where: { id: body.studentId }, select: { id: true, className: true, section: true, academicSessionId: true } });
     if (!student) return NextResponse.json({ error: "Student not found" }, { status: 404 });
     if (student.className !== paper.className) return NextResponse.json({ error: "Student is not enrolled in this paper's class" }, { status: 400 });
-    if (student.application.sessionId !== paper.exam.sessionId) return NextResponse.json({ error: "Student is not enrolled in this examination's academic session" }, { status: 400 });
-    if (await hasReportCardRelease(student.id, student.application.sessionId)) return NextResponse.json({ error: "This student's official report card has been released and the result is immutable." }, { status: 409 });
+    if (!student.academicSessionId) return NextResponse.json({ error: "Student is not placed in an academic session" }, { status: 400 });
+    if (student.academicSessionId !== paper.exam.sessionId) return NextResponse.json({ error: "Student is not enrolled in this examination's academic session" }, { status: 400 });
+    if (await hasReportCardRelease(student.id, student.academicSessionId)) return NextResponse.json({ error: "This student's official report card has been released and the result is immutable." }, { status: 409 });
 
     const maxMarks = Number(paper.maxMarks);
     const gradingBands = await getGradingBands(paper.exam.sessionId);
