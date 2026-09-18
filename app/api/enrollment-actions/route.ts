@@ -14,6 +14,14 @@ const schema = z.discriminatedUnion("action", [
     note: z.string().trim().max(1000).optional(),
   }),
   z.object({
+    action: z.literal("REACTIVATE"),
+    enrollmentId: z.string().trim().min(1),
+    targetSessionId: z.string().trim().min(1),
+    targetGradeId: z.string().trim().min(1),
+    targetSectionId: z.string().trim().min(1),
+    note: z.string().trim().max(1000).optional(),
+  }),
+  z.object({
     action: z.literal("TRANSFER"),
     enrollmentId: z.string().trim().min(1),
     targetSessionId: z.string().trim().min(1),
@@ -57,6 +65,41 @@ export async function POST(request: NextRequest) {
         className: enrollment.className,
         section: enrollment.section,
       };
+
+      if (input.action === "REACTIVATE") {
+        if (!["WITHDRAWN", "withdrawn", "INACTIVE", "inactive", "TRANSFERRED", "transferred"].includes(enrollment.status)) throw new Error("ENROLLMENT_NOT_REACTIVATABLE");
+        if (!input.targetSessionId || !input.targetGradeId || !input.targetSectionId) throw new Error("REACTIVATE_PLACEMENT_REQUIRED");
+        const target = await tx.academicSection.findUnique({ where: { id: input.targetSectionId }, include: { grade: { include: { session: true } } } });
+        if (!target || !target.active || !target.grade.active || !target.grade.session) throw new Error("TRANSFER_TARGET_NOT_FOUND");
+        if (target.grade.sessionId !== input.targetSessionId || target.gradeId !== input.targetGradeId) throw new Error("TRANSFER_TARGET_MISMATCH");
+        if (target.capacity !== null) {
+          await tx.$queryRawUnsafe(`SELECT "id" FROM "AcademicSection" WHERE "id"=$1 FOR UPDATE`, target.id);
+          const occupancy = await tx.enrollment.count({ where: { academicSectionId: target.id, id: { not: enrollment.id }, status: { in: activeStatuses } } });
+          if (occupancy >= target.capacity) throw new Error("TRANSFER_TARGET_AT_CAPACITY");
+        }
+        await tx.enrollmentHistory.create({ data: {
+          enrollmentId: enrollment.id, action: "BEFORE_REACTIVATE",
+          academicSessionId: source.sessionId, academicSessionName: source.sessionName,
+          academicGradeId: source.gradeId, academicGradeName: source.gradeName,
+          academicSectionId: source.sectionId, academicSectionName: source.sectionName,
+          className: source.className, section: source.section, status: enrollment.status,
+          note: input.note || "Before enrollment reactivation", createdBy: user.id,
+        }});
+        const updated = await tx.enrollment.update({ where: { id: enrollment.id }, data: {
+          academicSessionId: target.grade.sessionId, academicGradeId: target.gradeId, academicSectionId: target.id,
+          className: target.grade.name, section: target.name, status: "ACTIVE",
+        }});
+        await tx.application.update({ where: { id: enrollment.applicationId }, data: { status: "ENROLLED" } });
+        await tx.enrollmentHistory.create({ data: {
+          enrollmentId: enrollment.id, action: "REACTIVATE",
+          academicSessionId: target.grade.sessionId, academicSessionName: target.grade.session.name,
+          academicGradeId: target.gradeId, academicGradeName: target.grade.name,
+          academicSectionId: target.id, academicSectionName: target.name,
+          className: target.grade.name, section: target.name, status: "ACTIVE",
+          note: input.note || "Enrollment reactivated", createdBy: user.id,
+        }});
+        return { action: "REACTIVATE", enrollment: updated, source, target: { sessionId: target.grade.sessionId, sessionName: target.grade.session.name, gradeId: target.gradeId, gradeName: target.grade.name, sectionId: target.id, sectionName: target.name } };
+      }
 
       if (input.action === "WITHDRAW") {
         await tx.enrollmentHistory.create({
@@ -156,7 +199,7 @@ export async function POST(request: NextRequest) {
 
     await writeAuditLog({
       userId: user.id,
-      action: input.action === "WITHDRAW" ? "ENROLLMENT_WITHDRAWN" : "ENROLLMENT_TRANSFERRED",
+      action: input.action === "WITHDRAW" ? "ENROLLMENT_WITHDRAWN" : input.action === "REACTIVATE" ? "ENROLLMENT_REACTIVATED" : "ENROLLMENT_TRANSFERRED",
       entityType: "Enrollment",
       entityId: input.enrollmentId,
       metadata: input.action === "WITHDRAW" ? { source: result.source, note: input.note || null } : { source: result.source, target: result.target, note: input.note || null },
@@ -168,6 +211,8 @@ export async function POST(request: NextRequest) {
     if (error instanceof Error) {
       const messages: Record<string, [string, number]> = {
         ENROLLMENT_NOT_FOUND: ["Enrollment not found.", 404],
+        ENROLLMENT_NOT_REACTIVATABLE: ["This enrollment cannot be reactivated from its current status.", 409],
+        REACTIVATE_PLACEMENT_REQUIRED: ["Academic year, grade and section are required to reactivate the enrollment.", 400],
         ENROLLMENT_ACADEMIC_LINK_MISSING: ["Enrollment is missing its academic session, grade, or section link.", 409],
         TRANSFER_TARGET_UNCHANGED: ["The transfer target is the student's current class and section.", 400],
         TRANSFER_TARGET_NOT_FOUND: ["The selected target section is not active.", 400],
