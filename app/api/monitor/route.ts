@@ -16,7 +16,7 @@ export async function GET() {
     const attendanceStart = new Date(todayStart);
     attendanceStart.setDate(attendanceStart.getDate() - 29);
 
-    const [students, attendance, overdueInvoices, recentResults, homework, activeApplications] = await Promise.all([
+    const [students, attendance, overdueInvoices, recentResults, homework, activeApplications, staffAttendance] = await Promise.all([
       prisma.enrollment.count({ where: { status: "active" } }),
       prisma.attendance.findMany({
         where: { date: { gte: attendanceStart, lt: new Date(todayStart.getTime() + 24 * 60 * 60 * 1000) }, student: { status: "active" } },
@@ -41,6 +41,7 @@ export async function GET() {
         take: 100,
       }),
       prisma.application.count({ where: { status: { notIn: ["REJECTED", "CANCELLED", "WITHDRAWN", "ENROLLED"] } } }),
+      prisma.$queryRawUnsafe<Array<{ staffId:string; status:string; date:string; staffName:string; employeeNumber:string }>>(`SELECT a."staffId",a."status",a."date"::text AS "date",s."name" AS "staffName",s."employeeNumber" FROM "StaffAttendance" a JOIN "Staff" s ON s."id"=a."staffId" WHERE a."date">=$1::date AND a."date"<$2::date ORDER BY a."date" DESC,s."name" ASC`, attendanceStart, new Date(todayStart.getTime()+24*60*60*1000)).catch(() => []),
     ]);
 
     const attendanceByStudent = new Map<string, { total: number; attended: number }>();
@@ -63,6 +64,11 @@ export async function GET() {
       .slice(0, 25);
 
     const feeExceptions = overdueInvoices.map((invoice) => ({ id: invoice.id, invoiceNumber: invoice.invoiceNumber, studentId: invoice.studentId, studentName: invoice.student.application.studentName, amount: Number(invoice.netAmount), dueDate: invoice.dueDate.toISOString().slice(0, 10) })).slice(0, 25);
+    const staffAttendanceExceptions = staffAttendance
+      .filter((row) => row.status === "ABSENT" || row.status === "LATE" || row.status === "HALF_DAY")
+      .slice(0, 25)
+      .map((row) => ({ staffId: row.staffId, staffName: row.staffName, employeeNumber: row.employeeNumber, status: row.status, date: row.date }));
+
     const homeworkExceptions = homework
       .filter((item) => item.submissions.length > 0)
       .map((item) => ({ id: item.id, title: item.title, className: item.className, section: item.section, dueDate: item.dueDate.toISOString().slice(0, 10), notSubmitted: item.submissions.length }))
@@ -78,8 +84,9 @@ export async function GET() {
         failingResults: resultExceptions.length,
         overdueHomework: homeworkExceptions.length,
         activeAdmissions: activeApplications,
+        staffAttendanceExceptions: staffAttendanceExceptions.length,
       },
-      exceptions: { attendance: attendanceExceptions, fees: feeExceptions, results: resultExceptions, homework: homeworkExceptions },
+      exceptions: { attendance: attendanceExceptions, fees: feeExceptions, results: resultExceptions, homework: homeworkExceptions, staffAttendance: staffAttendanceExceptions },
     });
   } catch (error) {
     console.error(error);
