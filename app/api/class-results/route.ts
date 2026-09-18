@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
   const fallbackSubjects = [...paperBySubject.values()].map(p => ({ subject: p.subject, maxMarks: Number(p.maxMarks), displayOrder: 9999, section: null }));
   const effectiveSubjects = subjects.length ? subjects : fallbackSubjects;
 
-  const students = await prisma.enrollment.findMany({ where: { className, ...(section ? { section } : {}), OR: [{ academicSessionId: sessionId }, { academicSessionId: null, application: { sessionId } }] }, include: { application: true }, orderBy: { application: { studentName: "asc" } } });
+  const students = await prisma.enrollment.findMany({ where: { className, ...(section ? { section } : {}), academicSessionId: sessionId }, include: { application: true }, orderBy: { application: { studentName: "asc" } } });
   const rows = students.map(student => {
     let completedSubjects = 0;
     const values = effectiveSubjects.map(subject => {
