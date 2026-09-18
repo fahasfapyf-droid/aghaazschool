@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
 
     await writeAuditLog({ userId: user.id, action: "LOGIN_SUCCESS", entityType: "User", entityId: user.id, metadata: { mustChangePassword: user.mustChangePassword }, context });
     const response = NextResponse.json({ user: { id: user.id, name: user.name, phone: user.phone, email: user.email, role: user.role, mustChangePassword: user.mustChangePassword } });
-    response.cookies.set(SESSION_COOKIE, createSessionToken(user.id, user.role), {
+    response.cookies.set(SESSION_COOKIE, createSessionToken(user.id, user.role, user.mustChangePassword), {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
