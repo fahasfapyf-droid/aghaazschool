@@ -6,7 +6,7 @@ import { getCurrentUser, roleAllowed } from "@/lib/auth";
 import { teacherCanAccessEnrollment } from "@/lib/student-access";
 import { queueParentNotification } from "@/lib/communication/events";
 
-const ROLES = ["SUPER_ADMIN", "ADMIN", "TEACHER", "RECEPTIONIST"] as const;
+const ROLES = ["SUPER_ADMIN", "ADMIN", "TEACHER"] as const;
 const WRITE_ROLES = ["SUPER_ADMIN", "ADMIN", "TEACHER"] as const;
 const createSchema = z.object({
   enrollmentId: z.string().min(1), occurredAt: z.string().datetime().optional(), category: z.string().trim().min(1).max(80),
