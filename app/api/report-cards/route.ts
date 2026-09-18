@@ -2,17 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { findReportCardRelease } from "@/lib/report-card-release";
-
-const grade = (percentage: number) => {
-  if (percentage <= 0) return null;
-  if (percentage >= 90) return "A_PLUS";
-  if (percentage >= 80) return "A";
-  if (percentage >= 70) return "B_PLUS";
-  if (percentage >= 60) return "B";
-  if (percentage >= 50) return "C";
-  if (percentage >= 40) return "D";
-  return "TRY_AGAIN";
-};
+import { getGradingBands, resolveGrade } from "@/lib/grading";
 
 const termOrder: Record<string, number> = { FIRST: 1, SECOND: 2, THIRD: 3 };
 const termName = (term: string) => `${term.charAt(0)}${term.slice(1).toLowerCase()} Term`;
@@ -79,7 +69,10 @@ export async function GET(req: NextRequest) {
   });
   if (!student) return NextResponse.json({ error: "Student not found" }, { status: 404 });
 
-  const release = await findReportCardRelease(studentId, student.application.sessionId);
+  const [release, gradingBands] = await Promise.all([
+    findReportCardRelease(studentId, student.application.sessionId),
+    getGradingBands(student.application.sessionId),
+  ]);
   if (release) return NextResponse.json({ ...(release.snapshot as Record<string, unknown>), released: true, release: { id: release.id, snapshotHash: release.snapshotHash, releasedBy: release.releasedBy, releasedAt: release.releasedAt } });
 
   const [results, rawConfigurations, attendance] = await Promise.all([
@@ -130,7 +123,7 @@ export async function GET(req: NextRequest) {
       maxMarks,
       marks,
       percentage,
-      grade: entered ? (result!.grade || grade(percentage!)) : null,
+      grade: entered ? (result!.grade || resolveGrade(gradingBands, percentage!)) : null,
       entered,
       remarks: result?.remarks || null,
       components: entered && result!.components.length
@@ -155,7 +148,7 @@ export async function GET(req: NextRequest) {
     const term = fallbackTerms.get(key) || { key, name, order, subjects: [], totalMarks: 0, obtainedMarks: 0, enteredSubjects: 0, complete: false };
     const maxMarks = Number(result.paper.maxMarks);
     const marks = resultMarks(Number(result.marks), result.components);
-    term.subjects.push({ subject: result.paper.subject, maxMarks, marks, percentage: maxMarks ? (marks / maxMarks) * 100 : 0, grade: result.grade || grade(maxMarks ? (marks / maxMarks) * 100 : 0), entered: true, remarks: result.remarks, components: result.components.map(c => ({ name: c.name, maxMarks: Number(c.maxMarks), marks: Number(c.marks) })) });
+    term.subjects.push({ subject: result.paper.subject, maxMarks, marks, percentage: maxMarks ? (marks / maxMarks) * 100 : 0, grade: result.grade || resolveGrade(gradingBands, maxMarks ? (marks / maxMarks) * 100 : 0), entered: true, remarks: result.remarks, components: result.components.map(c => ({ name: c.name, maxMarks: Number(c.maxMarks), marks: Number(c.marks) })) });
     term.totalMarks += maxMarks;
     term.obtainedMarks += marks;
     term.enteredSubjects += 1;
@@ -205,7 +198,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     student: { id: student.id, name: student.application.studentName, guardianName: student.application.guardianName, guardianPhone: student.application.guardianPhone, admissionNumber: student.admissionNumber, className: student.className, section: student.section, session: student.application.session.name },
     terms: termReports,
-    final: { totalMarks, obtainedMarks, percentage, grade: annualComplete ? grade(percentage!) : null, position, complete: annualComplete, enteredSubjects: annualEnteredSubjects, expectedSubjects: annualExpectedSubjects },
+    final: { totalMarks, obtainedMarks, percentage, grade: annualComplete ? resolveGrade(gradingBands, percentage!) : null, position, complete: annualComplete, enteredSubjects: annualEnteredSubjects, expectedSubjects: annualExpectedSubjects },
     attendance: { ...attendanceSummary, percentage: attendanceSummary.total ? (attendanceSummary.present / attendanceSummary.total) * 100 : 0 },
   });
 }
