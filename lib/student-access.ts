@@ -1,6 +1,4 @@
 import { prisma } from "@/lib/prisma";
-import type { UserRole } from "@prisma/client";
-
 export async function getTeacherSectionIds(userId: string) {
   const rows = await prisma.$queryRawUnsafe<Array<{ academicSectionId: string }>>(
     `SELECT DISTINCT t."academicSectionId"
@@ -12,7 +10,7 @@ export async function getTeacherSectionIds(userId: string) {
   return rows.map(row => row.academicSectionId);
 }
 
-export async function teacherCanAccessEnrollment(user: { id: string; role: UserRole }, enrollmentId: string) {
+export async function teacherCanAccessEnrollment(user: { id: string; role: string }, enrollmentId: string) {
   if (user.role !== "TEACHER") return true;
   const rows = await prisma.$queryRawUnsafe<Array<{ id: string }>>(
     `SELECT e."id"
