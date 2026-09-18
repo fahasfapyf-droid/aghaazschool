@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import { getTeacherSectionIds } from "@/lib/student-access";
 import { getGradingBands, resolveGrade } from "@/lib/grading";
 
 type Config = { term: "FIRST" | "SECOND" | "THIRD"; subject: string; maxMarks: unknown; displayOrder: number; section: string | null };
@@ -23,6 +24,9 @@ export async function GET(request: NextRequest) {
   const className = request.nextUrl.searchParams.get("className");
   const section = request.nextUrl.searchParams.get("section");
   if (!sessionId || !className) return NextResponse.json({ error: "sessionId and className are required" }, { status: 400 });
+
+  const teacherSectionIds = user.role === "TEACHER" ? await getTeacherSectionIds(user.id) : null;
+  if (user.role === "TEACHER" && teacherSectionIds?.length === 0) return NextResponse.json({ rows: [] });
 
   const session = await prisma.academicSession.findUnique({ where: { id: sessionId } });
   if (!session) return NextResponse.json({ error: "Academic session not found" }, { status: 404 });
@@ -60,7 +64,7 @@ export async function GET(request: NextRequest) {
   const expectedKeys = new Set(subjects.map(item => `${item.term}:${item.subject.toLowerCase()}`));
 
   const students = await prisma.enrollment.findMany({
-    where: { className, ...(section ? { section } : {}), OR: [{ academicSessionId: sessionId }, { academicSessionId: null, application: { sessionId } }] },
+    where: { className, ...(section ? { section } : {}), academicSessionId: sessionId, ...(teacherSectionIds ? { academicSectionId: { in: teacherSectionIds } } : {}) },
     include: { application: true },
     orderBy: { application: { studentName: "asc" } }
   });
