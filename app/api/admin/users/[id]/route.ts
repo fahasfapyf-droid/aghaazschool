@@ -28,7 +28,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const target = await prisma.user.findUnique({ where: { id } });
     if (!target) return NextResponse.json({ error: "User not found." }, { status: 404 });
 
-    const data: { name?: string; phone?: string; email?: string | null; role?: UserRole; active?: boolean; passwordHash?: string } = {};
+    const data: { name?: string; phone?: string; email?: string | null; role?: UserRole; active?: boolean; passwordHash?: string; mustChangePassword?: boolean } = {};
     if (body.phone !== undefined) {
       const phone = String(body.phone).trim().replace(/[\s().-]/g, "");
       if (!/^\+?\d{8,15}$/.test(phone)) return NextResponse.json({ error: "Enter a valid phone number." }, { status: 400 });
@@ -75,6 +75,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       const password = String(body.password);
       if (password.length < 8) return NextResponse.json({ error: "Password must be at least 8 characters." }, { status: 400 });
       data.passwordHash = createPasswordHash(password);
+      data.mustChangePassword = true;
     }
 
     const hasStaffChange = Object.prototype.hasOwnProperty.call(body, "staffId");
