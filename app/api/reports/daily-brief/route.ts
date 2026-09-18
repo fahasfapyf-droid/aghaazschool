@@ -59,7 +59,7 @@ export async function GET(request: NextRequest) {
         new Date(startOfDay.getTime() - 7 * 86400000),
       ).catch(() => []),
       prisma.application.count({
-        where: { status: { in: ["SUBMITTED", "UNDER_REVIEW", "APPROVED"] } },
+        where: { status: { notIn: ["ENROLLED", "REJECTED", "WAITLISTED", "WITHDRAWN", "CANCELLED"] } },
       }).catch(() => 0),
       prisma.user.findMany({
         where: { active: true, role: { in: ["SUPER_ADMIN", "ADMIN"] } },
