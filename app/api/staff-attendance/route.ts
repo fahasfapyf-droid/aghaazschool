@@ -44,9 +44,9 @@ async function auth() {
   return { user };
 }
 
-async function linkedTeacherStaffId(user: { role: string; email: string }) {
-  if (user.role !== "TEACHER") return null;
-  const staff = await prisma.staff.findFirst({ where: { staffType: "TEACHER", active: true, email: { equals: user.email, mode: "insensitive" } }, select: { id: true } });
+async function linkedTeacherStaffId(user: { role: string; phone: string | null }) {
+  if (user.role !== "TEACHER" || !user.phone) return null;
+  const staff = await prisma.staff.findFirst({ where: { staffType: "TEACHER", active: true, phone: user.phone }, select: { id: true } });
   return staff?.id || null;
 }
 
