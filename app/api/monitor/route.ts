@@ -13,6 +13,10 @@ export async function GET() {
     const teacherSectionIds = user.role === "TEACHER" ? await getTeacherSectionIds(user.id) : null;
     if (user.role === "TEACHER" && teacherSectionIds?.length === 0) return NextResponse.json({ generatedAt: new Date().toISOString(), summary: { activeStudents: 0, attendanceExceptions: 0, overdueFees: 0, failingResults: 0, overdueHomework: 0, activeAdmissions: 0, staffAttendanceExceptions: 0 }, exceptions: { attendance: [], fees: [], results: [], homework: [], staffAttendance: [] } });
 
+    const teacherSectionRows = teacherSectionIds ? await prisma.academicSection.findMany({ where: { id: { in: teacherSectionIds } }, select: { name: true, grade: { select: { name: true } } } }) : [];
+    const teacherClassNames = new Set(teacherSectionRows.map(row => row.grade.name));
+    const teacherClassSections = new Set(teacherSectionRows.map(row => `${row.grade.name}::${row.name}`));
+
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -47,7 +51,7 @@ export async function GET() {
       prisma.$queryRawUnsafe<Array<{ staffId:string; status:string; date:string; staffName:string; employeeNumber:string }>>(`SELECT a."staffId",a."status",a."date"::text AS "date",s."name" AS "staffName",s."employeeNumber" FROM "StaffAttendance" a JOIN "Staff" s ON s."id"=a."staffId" WHERE a."date">=$1::date AND a."date"<$2::date ORDER BY a."date" DESC,s."name" ASC`, attendanceStart, new Date(todayStart.getTime()+24*60*60*1000)).catch(() => []),
     ]);
 
-    const scopedHomework = teacherSectionIds ? homework.filter(item => item.section === null || teacherSectionIds.some(() => true)) : homework;
+    const scopedHomework = teacherSectionIds ? homework.filter(item => teacherClassNames.has(item.className) && (item.section === null || teacherClassSections.has(`${item.className}::${item.section}`))) : homework;
 
     const attendanceByStudent = new Map<string, { total: number; attended: number }>();
     for (const row of attendance) {
