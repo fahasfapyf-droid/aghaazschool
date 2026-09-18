@@ -54,3 +54,7 @@ npm start
 If an existing production database was originally created with `prisma db push`, follow [`docs/production-migration.md`](docs/production-migration.md) before the first `migrate deploy`.
 
 Do not use `prisma db push` against the production database. All future production schema changes must be committed as versioned migrations under `prisma/migrations/`.
+
+## Vercel deployment
+
+This project is deployed from the `main` branch through its connected Vercel project. Production schema changes must use the versioned Prisma migration workflow documented in [`docs/production-migration.md`](docs/production-migration.md).
