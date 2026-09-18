@@ -11,7 +11,7 @@ const allowedTransitions: Record<string, string[]> = { DRAFT: ["SCHEDULED"], SCH
 
 function grade(marks: number, maxMarks: number) {
   const percentage = maxMarks ? (marks / maxMarks) * 100 : 0;
-  if (marks <= 0) return null;
+  if (marks < 0) return null;
   if (percentage >= 90) return "A_PLUS";
   if (percentage >= 80) return "A";
   if (percentage >= 70) return "B_PLUS";
