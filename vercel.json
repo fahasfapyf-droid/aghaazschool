@@ -1,14 +1,6 @@
 {
   "crons": [
     {
-      "path": "/api/communication/process",
-      "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/communication/alerts",
-      "schedule": "*/5 * * * *"
-    },
-    {
       "path": "/api/reports/daily-brief",
       "schedule": "0 7 * * *"
     }
