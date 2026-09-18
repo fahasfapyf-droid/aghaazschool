@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
     if (!roleAllowed(user.role, ROLES)) return NextResponse.json({ error: "You do not have permission to access the teacher workspace." }, { status: 403 });
 
     const requestedStaffId = request.nextUrl.searchParams.get("staffId") || "";
-    const staffRows = await prisma.staff.findMany({ where: { staffType: "TEACHER", active: true }, select: { id: true, employeeNumber: true, name: true, email: true, designation: true }, orderBy: { name: "asc" } });
+    const staffRows = await prisma.staff.findMany({ where: { staffType: "TEACHER", active: true }, select: { id: true, employeeNumber: true, name: true, phone: true, email: true, designation: true }, orderBy: { name: "asc" } });
     if (!staffRows.length) return NextResponse.json({ staff: [], teachers: [], schedule: [], classes: [], homework: [], actions: [], staffAttendance: null });
 
     let staff = requestedStaffId ? staffRows.find(x => x.id === requestedStaffId) : undefined;
