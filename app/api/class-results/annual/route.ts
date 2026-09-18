@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { getGradingBands, resolveGrade } from "@/lib/grading";
+import { getTeacherSectionIds } from "@/lib/student-access";
 
 type Config = { term: "FIRST" | "SECOND" | "THIRD"; subject: string; maxMarks: unknown; displayOrder: number; section: string | null };
 
@@ -26,6 +27,12 @@ export async function GET(request: NextRequest) {
 
   const session = await prisma.academicSession.findUnique({ where: { id: sessionId } });
   if (!session) return NextResponse.json({ error: "Academic session not found" }, { status: 404 });
+  if (user.role === "TEACHER") {
+    if (!section) return NextResponse.json({ error: "Teachers must request a specific assigned section." }, { status: 403 });
+    const sectionIds = await getTeacherSectionIds(user.id);
+    const allowed = sectionIds.length ? await prisma.$queryRawUnsafe<Array<{ id: string }>>(`SELECT s."id" FROM "AcademicSection" s JOIN "AcademicGrade" g ON g."id"=s."gradeId" WHERE s."id" = ANY($1::text[]) AND s."name"=$2 AND g."name"=$3 LIMIT 1`, sectionIds, section) : [];
+    if (!allowed.length) return NextResponse.json({ error: "You do not have access to this class section." }, { status: 403 });
+  }
 
   const [rawConfigs, gradingBands] = await Promise.all([
     prisma.reportCardSubject.findMany({
