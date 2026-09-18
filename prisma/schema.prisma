@@ -713,6 +713,7 @@ model User {
   phone String? @unique
   email String? @unique
   passwordHash String
+  mustChangePassword Boolean @default(false)
   role UserRole @default(RECEPTIONIST)
   active Boolean @default(true)
   createdAt DateTime @default(now())
