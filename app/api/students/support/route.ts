@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, roleAllowed } from "@/lib/auth";
+import { getTeacherSectionIds } from "@/lib/student-access";
 
 const ROLES = ["SUPER_ADMIN", "ADMIN", "TEACHER", "ACCOUNTANT", "RECEPTIONIST"] as const;
 
@@ -15,6 +16,8 @@ export async function GET(_request: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   if (!roleAllowed(user.role, [...ROLES])) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const teacherSectionIds = user.role === "TEACHER" ? await getTeacherSectionIds(user.id) : null;
+  if (user.role === "TEACHER" && teacherSectionIds?.length === 0) return NextResponse.json({ generatedAt: new Date().toISOString(), students: [] });
 
   try {
     const rows = await prisma.$queryRawUnsafe<SupportRow[]>(`
@@ -30,10 +33,10 @@ export async function GET(_request: NextRequest) {
       FROM "Enrollment" e
       JOIN "Application" a ON a."id"=e."applicationId"
       LEFT JOIN "StudentRegistry" sr ON sr."enrollmentId"=e."id"
-      WHERE e."status" NOT IN ('inactive','INACTIVE','WITHDRAWN','withdrawn','TRANSFERRED','transferred')
+      WHERE e."status" NOT IN ('inactive','INACTIVE','WITHDRAWN','withdrawn','TRANSFERRED','transferred')${teacherSectionIds ? ` AND e."academicSectionId" = ANY($1::text[])` : ""}
       ORDER BY a."studentName" ASC
       LIMIT 1000
-    `);
+    `, ...(teacherSectionIds ? [teacherSectionIds] : []));
 
     const students = rows.map((r) => {
       const signals: Signal[] = [];
