@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { createPasswordHash } from "@/lib/auth";
 
 function configuredSecret() {
-  const value = process.env.BOOTSTRAP_ADMIN_SECRET;
+  const value = process.env.BOOTSTRAP_ADMIN_SECRET?.trim();
   if (!value || value.length < 32) return null;
   return value;
 }
@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const bootstrapSecret = String(body.bootstrapSecret ?? "");
+    const bootstrapSecret = String(body.bootstrapSecret ?? "").trim();
     const name = String(body.name ?? "").trim();
     const email = String(body.email ?? "").trim().toLowerCase();
     const password = String(body.password ?? "");
