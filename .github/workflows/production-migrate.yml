@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       confirm:
-        description: "Type MIGRATE to confirm the production database migration"
+        description: "Type BASELINE for an existing db-push production database, or MIGRATE for a database whose baseline is already recorded"
         required: true
         type: string
 
@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   migrate:
-    if: ${{ github.event.inputs.confirm == 'MIGRATE' }}
+    if: ${{ github.event.inputs.confirm == 'BASELINE' || github.event.inputs.confirm == 'MIGRATE' }}
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
@@ -31,5 +31,8 @@ jobs:
         run: npx prisma validate
       - name: Generate Prisma client
         run: npx prisma generate
+      - name: Record existing baseline
+        if: ${{ github.event.inputs.confirm == 'BASELINE' }}
+        run: npx prisma migrate resolve --applied 20260915000000_init
       - name: Apply production migrations
         run: npx prisma migrate deploy
