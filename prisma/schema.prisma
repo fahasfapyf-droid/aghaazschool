@@ -567,6 +567,7 @@ model Result {
   studentId String
   marks Decimal @db.Decimal(8,2)
   grade ResultGrade?
+  gradeLabel String?
   remarks String?
   paper ExamPaper @relation(fields: [paperId], references: [id], onDelete: Cascade)
   student Enrollment @relation(fields: [studentId], references: [id], onDelete: Cascade)
