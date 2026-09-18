@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { requestAuditContext, writeAuditLog } from "@/lib/audit";
 import { createReportCardRelease, findReportCardRelease } from "@/lib/report-card-release";
+import { teacherCanAccessEnrollment } from "@/lib/student-access";
 
 const canRelease = (role?: string) => role === "SUPER_ADMIN" || role === "ADMIN";
 
