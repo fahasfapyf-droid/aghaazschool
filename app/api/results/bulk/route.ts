@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { requestAuditContext, writeAuditLog } from "@/lib/audit";
 import { hasReportCardRelease } from "@/lib/report-card-release";
+import { getTeacherSectionIds } from "@/lib/student-access";
 import { getGradingBands, gradingLabelToEnum, resolveGrade } from "@/lib/grading";
 
 const componentSchema = z.object({ name: z.string().trim().min(1), maxMarks: z.coerce.number().positive(), marks: z.coerce.number().min(0) });
@@ -24,14 +25,14 @@ export async function POST(req: NextRequest) {
 
     const studentIds = [...new Set(body.entries.map(entry => entry.studentId))];
     if (studentIds.length !== body.entries.length) return NextResponse.json({ error: "Each student may appear only once in a bulk submission" }, { status: 400 });
-    const students = await prisma.enrollment.findMany({ where: { id: { in: studentIds }, status: "active" }, select: { id: true, className: true, section: true, application: { select: { sessionId: true } } } });
+    const teacherSectionIds = user.role === "TEACHER" ? await getTeacherSectionIds(user.id) : null;
+    if (user.role === "TEACHER" && teacherSectionIds?.length === 0) return NextResponse.json({ error: "You are not assigned to any academic section." }, { status: 403 });
+    const students = await prisma.enrollment.findMany({ where: { id: { in: studentIds }, status: { in: ["active", "ACTIVE", "enrolled", "ENROLLED"] }, ...(teacherSectionIds ? { academicSectionId: { in: teacherSectionIds } } : {}) }, select: { id: true, className: true, section: true, academicSessionId: true, academicSectionId: true } });
     if (students.length !== studentIds.length) return NextResponse.json({ error: "One or more students are not active or were not found" }, { status: 400 });
     if (students.some(student => student.className !== paper.className)) return NextResponse.json({ error: "All selected students must belong to the paper's class" }, { status: 400 });
-    if (students.some(student => student.application.sessionId !== paper.exam.sessionId)) return NextResponse.json({ error: "All selected students must belong to the examination's academic session" }, { status: 400 });
-    const releasedStudents = await Promise.all(students.map(async student => ({ id: student.id, released: await hasReportCardRelease(student.id, student.application.sessionId) })));
+    if (students.some(student => student.academicSessionId !== paper.exam.sessionId)) return NextResponse.json({ error: "All selected students must belong to the examination's academic session" }, { status: 400 });
+    const releasedStudents = await Promise.all(students.map(async student => ({ id: student.id, released: student.academicSessionId ? await hasReportCardRelease(student.id, student.academicSessionId) : false })));
     const blocked = releasedStudents.filter(student => student.released).map(student => student.id);
-    if (blocked.length) return NextResponse.json({ error: "One or more selected students have officially released report cards and cannot be modified", studentIds: blocked }, { status: 409 });
-
     const studentMap = new Map(students.map(student => [student.id, student]));
     const maxMarks = Number(paper.maxMarks);
     const gradingBands = await getGradingBands(paper.exam.sessionId);
