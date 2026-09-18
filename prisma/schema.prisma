@@ -394,7 +394,7 @@ model Attendance {
   date DateTime
   status AttendanceStatus
   remarks String?
-  student Enrollment @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  student Enrollment @relation(fields: [studentId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   @@unique([studentId, date])
@@ -413,7 +413,7 @@ model FeeInvoice {
   status String @default("PENDING")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  student Enrollment @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  student Enrollment @relation(fields: [studentId], references: [id], onDelete: Restrict)
   payments FeePayment[]
   @@index([studentId, status])
 }
@@ -569,7 +569,7 @@ model Result {
   grade ResultGrade?
   remarks String?
   paper ExamPaper @relation(fields: [paperId], references: [id], onDelete: Cascade)
-  student Enrollment @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  student Enrollment @relation(fields: [studentId], references: [id], onDelete: Restrict)
   components ResultComponent[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
