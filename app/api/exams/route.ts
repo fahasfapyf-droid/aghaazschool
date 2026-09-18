@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUser, roleAllowed } from "@/lib/auth";
+import { getCurrentUser } from "@/lib/auth";
 import { requestAuditContext, writeAuditLog } from "@/lib/audit";
 
 const examSchema = z.object({
@@ -26,7 +26,6 @@ const adminRoles = new Set(["SUPER_ADMIN", "ADMIN"]);
 export async function GET(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!roleAllowed(user.role, ["SUPER_ADMIN", "ADMIN", "TEACHER"])) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const status = req.nextUrl.searchParams.get("status") || undefined;
   const exams = await prisma.exam.findMany({
     where: status ? { status: status as "DRAFT" | "SCHEDULED" | "PUBLISHED" } : undefined,

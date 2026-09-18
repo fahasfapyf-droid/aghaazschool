@@ -18,12 +18,11 @@ export async function GET(req: NextRequest) {
   const teacherSectionIds = user.role === "TEACHER" ? await getTeacherSectionIds(user.id) : null;
   if (user.role === "TEACHER" && teacherSectionIds?.length === 0) return NextResponse.json([]);
   const examId = req.nextUrl.searchParams.get("examId") || undefined;
-  const results = await prisma.result.findMany({ where: { ...(studentId ? { studentId } : {}), ...(examId ? { paper: { examId } } : {}) }, include: { components: true, student: { include: { application: true } }, paper: { include: { exam: true } } }, orderBy: { createdAt: "desc" } });
-  const visibleResults = teacherSectionIds ? results.filter(result => result.student.academicSectionId && teacherSectionIds.includes(result.student.academicSectionId)) : results;
-  const ids = visibleResults.map(result => result.id);
+  const results = await prisma.result.findMany({ where: { ...(studentId ? { studentId } : {}), ...(teacherSectionIds ? { student: { academicSectionId: { in: teacherSectionIds } } } : {}), ...(examId ? { paper: { examId } } : {}) }, include: { components: true, student: { include: { application: true } }, paper: { include: { exam: true } } }, orderBy: { createdAt: "desc" } });
+  const ids = results.map(result => result.id);
   const labels = ids.length ? await prisma.$queryRawUnsafe<Array<{ id: string; gradeLabel: string | null }>>(`SELECT "id","gradeLabel" FROM "Result" WHERE "id" = ANY($1::text[])`, ids) : [];
   const labelMap = new Map(labels.map(item => [item.id, item.gradeLabel]));
-  return NextResponse.json(visibleResults.map(result => ({ ...result, gradeLabel: labelMap.get(result.id) || null })));
+  return NextResponse.json(results.map(result => ({ ...result, gradeLabel: labelMap.get(result.id) || null })));
 }
 
 export async function POST(req: NextRequest) {

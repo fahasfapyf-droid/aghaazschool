@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createPasswordHash, requireUser } from "@/lib/auth";
 import { writeAuditLog, requestAuditContext } from "@/lib/audit";
-import { Prisma, UserRole } from "@prisma/client";
+import { UserRole } from "@prisma/client";
 
 const ADMIN_ROLES: UserRole[] = ["SUPER_ADMIN", "ADMIN"];
 
@@ -101,7 +101,6 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     await writeAuditLog({ userId: actor.id, action: "USER_UPDATED", entityType: "User", entityId: user.id, metadata: { changedFields: [...Object.keys(data), ...(hasStaffChange ? ["staffId"] : [])], role: user.role, active: user.active, staffId: staffId === undefined ? "unchanged" : staffId }, context });
     return NextResponse.json({ user: { ...user, linkedStaff: await staffForUser(user.id) } });
   } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return NextResponse.json({ error: "A user with one of the supplied unique identifiers already exists." }, { status: 409 });
     const status = error instanceof Error && error.message === "FORBIDDEN" ? 403 : 401;
     return NextResponse.json({ error: status === 403 ? "Administrator access required." : "Authentication required." }, { status });
   }

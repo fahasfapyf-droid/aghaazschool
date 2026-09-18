@@ -57,13 +57,11 @@ export async function POST(request: NextRequest) {
     if (!enrollment) return NextResponse.json({ error: "Enrollment not found." }, { status: 404 });
     if (!enrollment.application.guardianName?.trim()) return NextResponse.json({ error: "This student does not have a guardian name." }, { status: 400 });
 
+    await prisma.$executeRawUnsafe(`UPDATE "ParentAccessToken" SET "revokedAt"=NOW() WHERE "enrollmentId"=$1 AND "revokedAt" IS NULL`, enrollmentId);
     const token = randomBytes(32).toString("base64url");
     const id = randomUUID();
     const expiresAt = new Date(Date.now() + TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000);
-    await prisma.$transaction(async tx => {
-      await tx.$executeRawUnsafe(`UPDATE "ParentAccessToken" SET "revokedAt"=NOW() WHERE "enrollmentId"=$1 AND "revokedAt" IS NULL`, enrollmentId);
-      await tx.$executeRawUnsafe(`INSERT INTO "ParentAccessToken" ("id","enrollmentId","tokenHash","expiresAt","createdBy","createdAt") VALUES ($1,$2,$3,$4,$5,NOW())`, id, enrollmentId, hashToken(token), expiresAt, result.user.id);
-    });
+    await prisma.$executeRawUnsafe(`INSERT INTO "ParentAccessToken" ("id","enrollmentId","tokenHash","expiresAt","createdBy","createdAt") VALUES ($1,$2,$3,$4,$5,NOW())`, id, enrollmentId, hashToken(token), expiresAt, result.user.id);
     await writeAuditLog({ userId: result.user.id, action: "PARENT_ACCESS_LINK_CREATED", entityType: "Enrollment", entityId: enrollmentId, metadata: { expiresAt, guardianName: enrollment.application.guardianName }, context: requestAuditContext(request) });
 
     const origin = request.nextUrl.origin;

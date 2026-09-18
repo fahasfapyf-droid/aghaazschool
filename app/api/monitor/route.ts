@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, roleAllowed } from "@/lib/auth";
-import { getTeacherSectionIds } from "@/lib/student-access";
 
 const ROLES = ["SUPER_ADMIN", "ADMIN", "TEACHER", "ACCOUNTANT", "RECEPTIONIST"] as const;
 
@@ -12,28 +11,25 @@ export async function GET() {
     if (!roleAllowed(user.role, [...ROLES])) return NextResponse.json({ error: "You do not have permission to access Monitor." }, { status: 403 });
 
     const now = new Date();
-    const teacherSectionIds = user.role === "TEACHER" ? await getTeacherSectionIds(user.id) : null;
-    const teacherEnrollmentIds = teacherSectionIds?.length ? (await prisma.enrollment.findMany({ where: { academicSectionId: { in: teacherSectionIds } }, select: { id: true } })).map(row => row.id) : null;
-    if (teacherSectionIds?.length === 0) return NextResponse.json({ generatedAt: now.toISOString(), thresholds: { attendancePercent: 80, minimumAttendanceRecords: 5, overdueFees: true, failingResults: true, overdueHomework: true }, summary: { activeStudents: 0, attendanceExceptions: 0, overdueFees: 0, failingResults: 0, overdueHomework: 0, activeAdmissions: 0, staffAttendanceExceptions: 0 }, exceptions: { attendance: [], fees: [], results: [], homework: [], staffAttendance: [] } });
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const attendanceStart = new Date(todayStart);
     attendanceStart.setDate(attendanceStart.getDate() - 29);
 
     const [students, attendance, overdueInvoices, recentResults, homework, activeApplications, staffAttendance] = await Promise.all([
-      prisma.enrollment.count({ where: { status: "active", ...(teacherSectionIds ? { academicSectionId: { in: teacherSectionIds } } : {}) } }),
+      prisma.enrollment.count({ where: { status: "active" } }),
       prisma.attendance.findMany({
-        where: { date: { gte: attendanceStart, lt: new Date(todayStart.getTime() + 24 * 60 * 60 * 1000) }, studentId: teacherEnrollmentIds ? { in: teacherEnrollmentIds } : undefined },
+        where: { date: { gte: attendanceStart, lt: new Date(todayStart.getTime() + 24 * 60 * 60 * 1000) }, student: { status: "active" } },
         select: { studentId: true, status: true },
       }),
       prisma.feeInvoice.findMany({
-        where: { dueDate: { lt: todayStart }, status: { not: "PAID" }, ...(teacherEnrollmentIds ? { studentId: { in: teacherEnrollmentIds } } : {}) },
+        where: { dueDate: { lt: todayStart }, status: { not: "PAID" }, student: { status: "active" } },
         select: { id: true, invoiceNumber: true, studentId: true, netAmount: true, dueDate: true, student: { select: { application: { select: { studentName: true } } } } },
         orderBy: { dueDate: "asc" },
         take: 100,
       }),
       prisma.result.findMany({
-        where: { createdAt: { gte: monthStart }, ...(teacherEnrollmentIds ? { studentId: { in: teacherEnrollmentIds } } : {}) },
+        where: { createdAt: { gte: monthStart }, student: { status: "active" } },
         select: { studentId: true, marks: true, grade: true, paper: { select: { subject: true, passMarks: true, maxMarks: true } }, student: { select: { application: { select: { studentName: true } } } } },
         orderBy: { createdAt: "desc" },
         take: 500,

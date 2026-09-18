@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
-import { teacherCanAccessEnrollment } from "@/lib/student-access";
+import { getTeacherSectionIds, teacherCanAccessEnrollment } from "@/lib/student-access";
 import { findReportCardRelease } from "@/lib/report-card-release";
 import { getGradingBands, resolveGrade } from "@/lib/grading";
 
@@ -176,7 +176,7 @@ export async function GET(req: NextRequest) {
     const classmates = await prisma.enrollment.findMany({ where: { className: student.className, section: student.section, academicSessionId: currentSessionId }, select: { id: true } });
     const classmateIds = classmates.map(item => item.id);
     const classResults = await prisma.result.findMany({
-      where: { studentId: { in: classmateIds }, paper: { className: student.className, exam: { sessionId: currentSessionId, status: "PUBLISHED" } } },
+      where: { studentId: { in: classmateIds }, paper: { className: student.className, exam: { sessionId: student.application.sessionId, status: "PUBLISHED" } } },
       include: { components: true, paper: { include: { exam: true } } },
     });
     const totals = new Map<string, { marks: number; maxMarks: number; keys: Set<string> }>();

@@ -348,7 +348,7 @@ model Enrollment {
   academicGradeId String?
   academicSectionId String?
   enrolledAt DateTime @default(now())
-  status String @default("ACTIVE")
+  status String @default("active")
   application Application @relation(fields: [applicationId], references: [id])
   academicSession AcademicSession? @relation("EnrollmentAcademicSession", fields: [academicSessionId], references: [id], onDelete: SetNull)
   academicGrade AcademicGrade? @relation("EnrollmentAcademicGrade", fields: [academicGradeId], references: [id], onDelete: SetNull)
@@ -382,7 +382,7 @@ model EnrollmentHistory {
   note String?
   createdBy String?
   createdAt DateTime @default(now())
-  enrollment Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Restrict)
+  enrollment Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
   @@index([enrollmentId, effectiveAt])
   @@index([action, effectiveAt])
   @@index([academicSessionId])
@@ -413,7 +413,7 @@ model FeeInvoice {
   status String @default("PENDING")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  student Enrollment @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  student Enrollment @relation(fields: [studentId], references: [id], onDelete: Cascade)
   payments FeePayment[]
   @@index([studentId, status])
 }
@@ -569,7 +569,7 @@ model Result {
   grade ResultGrade?
   remarks String?
   paper ExamPaper @relation(fields: [paperId], references: [id], onDelete: Cascade)
-  student Enrollment @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  student Enrollment @relation(fields: [studentId], references: [id], onDelete: Cascade)
   components ResultComponent[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

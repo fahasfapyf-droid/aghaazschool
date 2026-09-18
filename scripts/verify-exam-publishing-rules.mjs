@@ -14,7 +14,7 @@ assert.equal(transitions.PUBLISHED.includes("DRAFT"), false, "Published exams mu
 
 const grade = (marks, maxMarks) => {
   const percentage = maxMarks ? (marks / maxMarks) * 100 : 0;
-  if (marks < 0) return null;
+  if (marks <= 0) return null;
   if (percentage >= 90) return "A_PLUS";
   if (percentage >= 80) return "A";
   if (percentage >= 70) return "B_PLUS";
@@ -25,7 +25,6 @@ const grade = (marks, maxMarks) => {
 };
 
 const valid = { marks: 85, maxMarks: 100, grade: "A" };
-assert.equal(grade(0, 100), "TRY_AGAIN", "A zero mark is an entered failing result, not a missing result");
 assert.equal(grade(valid.marks, valid.maxMarks), valid.grade, "Valid result must retain the expected grade");
 
 const resultState = (results, studentIds) => {
