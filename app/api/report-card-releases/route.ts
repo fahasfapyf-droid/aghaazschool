@@ -19,6 +19,7 @@ export async function GET(req: NextRequest) {
 
   const student = await prisma.enrollment.findUnique({ where: { id: studentId }, select: { id: true, academicSessionId: true } });
   if (!student) return NextResponse.json({ error: "Student not found" }, { status: 404 });
+  if (!(await teacherCanAccessEnrollment(user, student.id))) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   if (!student.academicSessionId) return NextResponse.json({ error: "Student is not placed in an academic session" }, { status: 409 });
   const release = await findReportCardRelease(studentId, student.academicSessionId);
   return NextResponse.json({ released: Boolean(release), release });
