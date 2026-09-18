@@ -29,18 +29,19 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const email = String(body.email ?? "").trim().toLowerCase();
+    const phone = String(body.phone ?? "").trim().replace(/[\s().-]/g, "");
     const password = String(body.password ?? "");
-    if (!email || !password) return NextResponse.json({ error: "Email and password are required." }, { status: 400 });
+    if (!phone || !password) return NextResponse.json({ error: "Phone number and password are required." }, { status: 400 });
+    if (!/^\+?\d{8,15}$/.test(phone)) return NextResponse.json({ error: "Enter a valid phone number." }, { status: 400 });
 
-    const user = await prisma.user.findUnique({ where: { email } });
+    const user = await prisma.user.findUnique({ where: { phone } });
     if (!user || !user.active || !verifyPassword(password, user.passwordHash)) {
       await writeAuditLog({ action: "LOGIN_FAILED", entityType: "User", metadata: { reason: "invalid_credentials" }, context });
-      return NextResponse.json({ error: "Invalid email or password." }, { status: 401 });
+      return NextResponse.json({ error: "Invalid phone number or password." }, { status: 401 });
     }
 
-    await writeAuditLog({ userId: user.id, action: "LOGIN_SUCCESS", entityType: "User", entityId: user.id, context });
-    const response = NextResponse.json({ user: { id: user.id, name: user.name, email: user.email, role: user.role } });
+    await writeAuditLog({ userId: user.id, action: "LOGIN_SUCCESS", entityType: "User", entityId: user.id, metadata: { mustChangePassword: user.mustChangePassword }, context });
+    const response = NextResponse.json({ user: { id: user.id, name: user.name, phone: user.phone, email: user.email, role: user.role, mustChangePassword: user.mustChangePassword } });
     response.cookies.set(SESSION_COOKIE, createSessionToken(user.id, user.role), {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
