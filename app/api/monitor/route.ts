@@ -26,7 +26,7 @@ export async function GET() {
         select: { studentId: true, status: true },
       }),
       prisma.feeInvoice.findMany({
-        where: { dueDate: { lt: todayStart }, status: { not: "PAID" }, student: { status: "active" } },
+        where: { dueDate: { lt: todayStart }, status: { not: "PAID" }, student: { status: { in: ["active", "ACTIVE", "enrolled", "ENROLLED"] }, ...(teacherSectionIds ? { academicSectionId: { in: teacherSectionIds } } : {}) } },
         select: { id: true, invoiceNumber: true, studentId: true, netAmount: true, dueDate: true, student: { select: { application: { select: { studentName: true } } } } },
         orderBy: { dueDate: "asc" },
         take: 100,
@@ -46,6 +46,8 @@ export async function GET() {
       prisma.application.count({ where: { status: { notIn: ["REJECTED", "CANCELLED", "WITHDRAWN", "ENROLLED"] } } }),
       prisma.$queryRawUnsafe<Array<{ staffId:string; status:string; date:string; staffName:string; employeeNumber:string }>>(`SELECT a."staffId",a."status",a."date"::text AS "date",s."name" AS "staffName",s."employeeNumber" FROM "StaffAttendance" a JOIN "Staff" s ON s."id"=a."staffId" WHERE a."date">=$1::date AND a."date"<$2::date ORDER BY a."date" DESC,s."name" ASC`, attendanceStart, new Date(todayStart.getTime()+24*60*60*1000)).catch(() => []),
     ]);
+
+    const scopedHomework = teacherSectionIds ? homework.filter(item => item.section === null || teacherSectionIds.some(() => true)) : homework;
 
     const attendanceByStudent = new Map<string, { total: number; attended: number }>();
     for (const row of attendance) {
@@ -72,7 +74,7 @@ export async function GET() {
       .slice(0, 25)
       .map((row) => ({ staffId: row.staffId, staffName: row.staffName, employeeNumber: row.employeeNumber, status: row.status, date: row.date }));
 
-    const homeworkExceptions = homework
+    const homeworkExceptions = scopedHomework
       .filter((item) => item.submissions.length > 0)
       .map((item) => ({ id: item.id, title: item.title, className: item.className, section: item.section, dueDate: item.dueDate.toISOString().slice(0, 10), notSubmitted: item.submissions.length }))
       .slice(0, 25);
