@@ -4,17 +4,10 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { requestAuditContext, writeAuditLog } from "@/lib/audit";
 import { hasReportCardRelease } from "@/lib/report-card-release";
+import { getGradingBands, gradingLabelToEnum, resolveGrade } from "@/lib/grading";
 
 const componentSchema = z.object({ name: z.string().trim().min(1), maxMarks: z.coerce.number().positive(), marks: z.coerce.number().min(0) });
 const resultSchema = z.object({ paperId: z.string(), studentId: z.string(), marks: z.coerce.number().min(0).optional(), components: z.array(componentSchema).optional(), remarks: z.string().trim().max(2000).optional() }).refine(value => value.marks !== undefined || value.components !== undefined, { message: "Marks or assessment components are required" });
-function fallbackGrade(marks: number, max: number) { const percentage = max ? marks / max * 100 : 0; if (marks <= 0) return null; if (percentage >= 90) return "A_PLUS"; if (percentage >= 80) return "A"; if (percentage >= 70) return "B_PLUS"; if (percentage >= 60) return "B"; if (percentage >= 50) return "C"; if (percentage >= 40) return "D"; return "TRY_AGAIN"; }
-function enumGrade(label: string | null) { const map: Record<string, string> = { "A+": "A_PLUS", "A_PLUS": "A_PLUS", "A": "A", "B+": "B_PLUS", "B_PLUS": "B_PLUS", "B": "B", "C": "C", "D": "D", "F": "TRY_AGAIN", "TRY_AGAIN": "TRY_AGAIN" }; return label && map[label.toUpperCase()] ? map[label.toUpperCase()] : null; }
-async function resolveGrade(sessionId: string, marks: number, maxMarks: number) {
-  const percentage = maxMarks ? marks / maxMarks * 100 : 0;
-  const bands = await prisma.$queryRawUnsafe<Array<{ label: string; minPercentage: number; maxPercentage: number }>>(`SELECT b."label",b."minPercentage",b."maxPercentage" FROM "GradingBand" b JOIN "GradingScheme" s ON s."id"=b."schemeId" WHERE s."active"=true AND (s."sessionId"=$1 OR s."sessionId" IS NULL) AND b."minPercentage" <= $2 AND b."maxPercentage" >= $2 ORDER BY CASE WHEN s."sessionId"=$1 THEN 0 ELSE 1 END, b."minPercentage" DESC LIMIT 1`, sessionId, percentage);
-  const label = bands[0]?.label || null;
-  return { label, grade: enumGrade(label) || fallbackGrade(marks, maxMarks) };
-}
 function canEnterResults(role?: string) { return role === "SUPER_ADMIN" || role === "ADMIN" || role === "TEACHER"; }
 
 export async function GET(req: NextRequest) {
@@ -45,6 +38,7 @@ export async function POST(req: NextRequest) {
     if (await hasReportCardRelease(student.id, student.application.sessionId)) return NextResponse.json({ error: "This student's official report card has been released and the result is immutable." }, { status: 409 });
 
     const maxMarks = Number(paper.maxMarks);
+    const gradingBands = await getGradingBands(paper.exam.sessionId);
     let configured = null;
     if (paper.exam.term) {
       const configs = await prisma.reportCardSubject.findMany({ where: { sessionId: paper.exam.sessionId, className: paper.className, OR: [{ section: student.section || null }, { section: null }], term: paper.exam.term, subject: paper.subject, active: true }, include: { components: { orderBy: { displayOrder: "asc" } } } });
@@ -72,10 +66,11 @@ export async function POST(req: NextRequest) {
     }
     if (marks > maxMarks) return NextResponse.json({ error: `Marks cannot exceed ${maxMarks}` }, { status: 400 });
 
-    const resolved = await resolveGrade(paper.exam.sessionId, marks, maxMarks);
-    const result = await prisma.result.upsert({ where: { paperId_studentId: { paperId: body.paperId, studentId: body.studentId } }, create: { paperId: body.paperId, studentId: body.studentId, marks, grade: resolved.grade as never, remarks: body.remarks, components: components?.length ? { create: components.map(c => ({ name: c.name, maxMarks: c.maxMarks, marks: c.marks })) } : undefined }, update: { marks, grade: resolved.grade as never, remarks: body.remarks, components: components ? { deleteMany: {}, create: components.map(c => ({ name: c.name, maxMarks: c.maxMarks, marks: c.marks })) } : undefined }, include: { components: true, paper: true } });
+    const resolvedLabel = resolveGrade(gradingBands, maxMarks ? (marks / maxMarks) * 100 : 0);
+    const resolvedGrade = gradingLabelToEnum(resolvedLabel);
+    const result = await prisma.result.upsert({ where: { paperId_studentId: { paperId: body.paperId, studentId: body.studentId } }, create: { paperId: body.paperId, studentId: body.studentId, marks, grade: resolvedGrade as never, remarks: body.remarks, components: components?.length ? { create: components.map(c => ({ name: c.name, maxMarks: c.maxMarks, marks: c.marks })) } : undefined }, update: { marks, grade: resolvedGrade as never, remarks: body.remarks, components: components ? { deleteMany: {}, create: components.map(c => ({ name: c.name, maxMarks: c.maxMarks, marks: c.marks })) } : undefined }, include: { components: true, paper: true } });
     await prisma.$executeRawUnsafe(`UPDATE "Result" SET "gradeLabel"=$1 WHERE "id"=$2`, resolved.label, result.id);
-    await writeAuditLog({ userId: user.id, action: "RESULT_SAVED", entityType: "Result", entityId: result.id, metadata: { studentId: body.studentId, paperId: body.paperId, examId: paper.examId, subject: paper.subject, marks, maxMarks, grade: result.grade, gradeLabel: resolved.label }, context: requestAuditContext(req) });
-    return NextResponse.json({ ...result, gradeLabel: resolved.label });
+    await writeAuditLog({ userId: user.id, action: "RESULT_SAVED", entityType: "Result", entityId: result.id, metadata: { studentId: body.studentId, paperId: body.paperId, examId: paper.examId, subject: paper.subject, marks, maxMarks, grade: result.grade, gradeLabel: resolvedLabel }, context: requestAuditContext(req) });
+    return NextResponse.json({ ...result, gradeLabel: resolvedLabel });
   } catch (e) { return NextResponse.json({ error: e instanceof z.ZodError ? "Invalid result data" : e instanceof Error ? e.message : "Unable to save result" }, { status: 400 }); }
 }
