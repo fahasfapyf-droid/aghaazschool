@@ -348,7 +348,7 @@ model Enrollment {
   academicGradeId String?
   academicSectionId String?
   enrolledAt DateTime @default(now())
-  status String @default("active")
+  status String @default("ACTIVE")
   application Application @relation(fields: [applicationId], references: [id])
   academicSession AcademicSession? @relation("EnrollmentAcademicSession", fields: [academicSessionId], references: [id], onDelete: SetNull)
   academicGrade AcademicGrade? @relation("EnrollmentAcademicGrade", fields: [academicGradeId], references: [id], onDelete: SetNull)
