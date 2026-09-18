@@ -28,7 +28,23 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const target = await prisma.user.findUnique({ where: { id } });
     if (!target) return NextResponse.json({ error: "User not found." }, { status: 404 });
 
-    const data: { name?: string; role?: UserRole; active?: boolean; passwordHash?: string } = {};
+    const data: { name?: string; phone?: string; email?: string | null; role?: UserRole; active?: boolean; passwordHash?: string } = {};
+    if (body.phone !== undefined) {
+      const phone = String(body.phone).trim().replace(/[\s().-]/g, "");
+      if (!/^\+?\d{8,15}$/.test(phone)) return NextResponse.json({ error: "Enter a valid phone number." }, { status: 400 });
+      const existingPhone = await prisma.user.findFirst({ where: { phone, NOT: { id } }, select: { id: true } });
+      if (existingPhone) return NextResponse.json({ error: "That phone number already belongs to another user." }, { status: 409 });
+      data.phone = phone;
+    }
+    if (body.email !== undefined) {
+      const emailValue = String(body.email ?? "").trim().toLowerCase();
+      if (emailValue && !/^\S+@\S+\.\S+$/.test(emailValue)) return NextResponse.json({ error: "Enter a valid email address." }, { status: 400 });
+      if (emailValue) {
+        const existingEmail = await prisma.user.findFirst({ where: { email: emailValue, NOT: { id } }, select: { id: true } });
+        if (existingEmail) return NextResponse.json({ error: "That email address already belongs to another user." }, { status: 409 });
+      }
+      data.email = emailValue || null;
+    }
     if (body.name !== undefined) {
       const name = String(body.name).trim();
       if (name.length < 2 || name.length > 100) return NextResponse.json({ error: "Name must be 2–100 characters." }, { status: 400 });
@@ -73,7 +89,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     }
 
     const user = await prisma.$transaction(async tx => {
-      const updated = Object.keys(data).length ? await tx.user.update({ where: { id }, data, select: { id: true, name: true, email: true, role: true, active: true, updatedAt: true } }) : await tx.user.findUniqueOrThrow({ where: { id }, select: { id: true, name: true, email: true, role: true, active: true, updatedAt: true } });
+      const updated = Object.keys(data).length ? await tx.user.update({ where: { id }, data, select: { id: true, name: true, phone: true, email: true, role: true, active: true, updatedAt: true } }) : await tx.user.findUniqueOrThrow({ where: { id }, select: { id: true, name: true, email: true, role: true, active: true, updatedAt: true } });
       if (staffId !== undefined) {
         await tx.$executeRawUnsafe(`UPDATE "Staff" SET "userId"=NULL,"updatedAt"=NOW() WHERE "userId"=$1`, id);
         if (staffId) await tx.$executeRawUnsafe(`UPDATE "Staff" SET "userId"=$1,"updatedAt"=NOW() WHERE "id"=$2`, id, staffId);
