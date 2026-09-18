@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
+import { getTeacherSectionIds } from "@/lib/student-access";
 import { prisma } from "@/lib/prisma";
 
 export async function GET(request: NextRequest) {
@@ -10,9 +11,11 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const q = searchParams.get("q")?.trim() || undefined;
     const className = searchParams.get("class")?.trim() || undefined;
+    const teacherSectionIds = user.role === "TEACHER" ? await getTeacherSectionIds(user.id) : null;
+    if (user.role === "TEACHER" && teacherSectionIds?.length === 0) return NextResponse.json([]);
     const students = await prisma.application.findMany({
       where: {
-        enrollment: { is: className ? { className } : {} },
+        enrollment: { is: { ...(className ? { className } : {}), ...(teacherSectionIds ? { academicSectionId: { in: teacherSectionIds } } : {}) } },
         ...(q ? { OR: [{ studentName: { contains: q, mode: "insensitive" } }, { guardianName: { contains: q, mode: "insensitive" } }, { guardianPhone: { contains: q, mode: "insensitive" } }] } : {}),
       },
       include: { enrollment: true, session: true },
