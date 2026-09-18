@@ -5,6 +5,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { requestAuditContext, writeAuditLog } from "@/lib/audit";
 import { hasReportCardRelease } from "@/lib/report-card-release";
 import { getGradingBands, gradingLabelToEnum, resolveGrade } from "@/lib/grading";
+import { getTeacherSectionIds } from "@/lib/student-access";
 
 const componentSchema = z.object({ name: z.string().trim().min(1), maxMarks: z.coerce.number().positive(), marks: z.coerce.number().min(0) });
 const resultSchema = z.object({ paperId: z.string(), studentId: z.string(), marks: z.coerce.number().min(0).optional(), components: z.array(componentSchema).optional(), remarks: z.string().trim().max(2000).optional() }).refine(value => value.marks !== undefined || value.components !== undefined, { message: "Marks or assessment components are required" });
@@ -14,8 +15,10 @@ export async function GET(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const studentId = req.nextUrl.searchParams.get("studentId") || undefined;
+  const teacherSectionIds = user.role === "TEACHER" ? await getTeacherSectionIds(user.id) : null;
+  if (user.role === "TEACHER" && teacherSectionIds?.length === 0) return NextResponse.json([]);
   const examId = req.nextUrl.searchParams.get("examId") || undefined;
-  const results = await prisma.result.findMany({ where: { ...(studentId ? { studentId } : {}), ...(examId ? { paper: { examId } } : {}) }, include: { components: true, student: { include: { application: true } }, paper: { include: { exam: true } } }, orderBy: { createdAt: "desc" } });
+  const results = await prisma.result.findMany({ where: { ...(studentId ? { studentId } : {}), ...(teacherSectionIds ? { student: { academicSectionId: { in: teacherSectionIds } } } : {}), ...(examId ? { paper: { examId } } : {}) }, include: { components: true, student: { include: { application: true } }, paper: { include: { exam: true } } }, orderBy: { createdAt: "desc" } });
   const ids = results.map(result => result.id);
   const labels = ids.length ? await prisma.$queryRawUnsafe<Array<{ id: string; gradeLabel: string | null }>>(`SELECT "id","gradeLabel" FROM "Result" WHERE "id" = ANY($1::text[])`, ids) : [];
   const labelMap = new Map(labels.map(item => [item.id, item.gradeLabel]));
