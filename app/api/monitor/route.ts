@@ -27,13 +27,13 @@ export async function GET() {
         select: { studentId: true, status: true },
       }),
       prisma.feeInvoice.findMany({
-        where: { dueDate: { lt: todayStart }, status: { not: "PAID" }, student: { status: "active" } },
+        where: { dueDate: { lt: todayStart }, status: { not: "PAID" }, ...(teacherEnrollmentIds ? { studentId: { in: teacherEnrollmentIds } } : {}) },
         select: { id: true, invoiceNumber: true, studentId: true, netAmount: true, dueDate: true, student: { select: { application: { select: { studentName: true } } } } },
         orderBy: { dueDate: "asc" },
         take: 100,
       }),
       prisma.result.findMany({
-        where: { createdAt: { gte: monthStart }, student: { status: "active" } },
+        where: { createdAt: { gte: monthStart }, ...(teacherEnrollmentIds ? { studentId: { in: teacherEnrollmentIds } } : {}) },
         select: { studentId: true, marks: true, grade: true, paper: { select: { subject: true, passMarks: true, maxMarks: true } }, student: { select: { application: { select: { studentName: true } } } } },
         orderBy: { createdAt: "desc" },
         take: 500,
