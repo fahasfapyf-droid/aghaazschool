@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
     const resolvedLabel = resolveGrade(gradingBands, maxMarks ? (marks / maxMarks) * 100 : 0);
     const resolvedGrade = gradingLabelToEnum(resolvedLabel);
     const result = await prisma.result.upsert({ where: { paperId_studentId: { paperId: body.paperId, studentId: body.studentId } }, create: { paperId: body.paperId, studentId: body.studentId, marks, grade: resolvedGrade as never, remarks: body.remarks, components: components?.length ? { create: components.map(c => ({ name: c.name, maxMarks: c.maxMarks, marks: c.marks })) } : undefined }, update: { marks, grade: resolvedGrade as never, remarks: body.remarks, components: components ? { deleteMany: {}, create: components.map(c => ({ name: c.name, maxMarks: c.maxMarks, marks: c.marks })) } : undefined }, include: { components: true, paper: true } });
-    await prisma.$executeRawUnsafe(`UPDATE "Result" SET "gradeLabel"=$1 WHERE "id"=$2`, resolved.label, result.id);
+    await prisma.$executeRawUnsafe(`UPDATE "Result" SET "gradeLabel"=$1 WHERE "id"=$2`, resolvedLabel, result.id);
     await writeAuditLog({ userId: user.id, action: "RESULT_SAVED", entityType: "Result", entityId: result.id, metadata: { studentId: body.studentId, paperId: body.paperId, examId: paper.examId, subject: paper.subject, marks, maxMarks, grade: result.grade, gradeLabel: resolvedLabel }, context: requestAuditContext(req) });
     return NextResponse.json({ ...result, gradeLabel: resolvedLabel });
   } catch (e) { return NextResponse.json({ error: e instanceof z.ZodError ? "Invalid result data" : e instanceof Error ? e.message : "Unable to save result" }, { status: 400 }); }
