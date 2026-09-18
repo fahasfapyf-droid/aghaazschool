@@ -74,7 +74,7 @@ export async function getCurrentUser() {
   if (!session) return null;
   const user = await prisma.user.findFirst({
     where: { id: session.userId, active: true },
-    select: { id: true, name: true, email: true, role: true, active: true, updatedAt: true },
+    select: { id: true, name: true, phone: true, email: true, role: true, active: true, updatedAt: true },
   });
   if (!user || session.iat < user.updatedAt.getTime()) return null;
   return user;
