@@ -27,8 +27,8 @@ export async function GET(request: NextRequest) {
 
     let staff = requestedStaffId ? staffRows.find(x => x.id === requestedStaffId) : undefined;
     if (user.role === "TEACHER") {
-      staff = staffRows.find(x => (x.email || "").trim().toLowerCase() === user.email.trim().toLowerCase());
-      if (!staff) return NextResponse.json({ error: "Your user account is not linked to an active teacher record. Ask an administrator to link your staff email." }, { status: 409 });
+      staff = staffRows.find(x => (x.email || "").trim().toLowerCase() === (user.email || "").trim().toLowerCase() && user.email) || staffRows.find(x => x.phone === user.phone);
+      if (!staff) return NextResponse.json({ error: "Your user account is not linked to an active teacher record. Ask an administrator to link your staff phone number." }, { status: 409 });
     }
     if (!staff) staff = staffRows[0];
 
