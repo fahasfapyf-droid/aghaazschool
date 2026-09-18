@@ -2,7 +2,7 @@ import type { UserRole } from "@prisma/client";
 
 export const SESSION_COOKIE = "aghaaz_session";
 
-type SessionPayload = { userId: string; role: UserRole; iat: number; exp: number };
+type SessionPayload = { userId: string; role: UserRole; mustChangePassword: boolean; iat: number; exp: number };
 
 function decodeBase64url(value: string) {
   const normalized = value.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
