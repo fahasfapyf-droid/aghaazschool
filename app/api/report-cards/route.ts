@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import { getTeacherSectionIds, teacherCanAccessEnrollment } from "@/lib/student-access";
 import { findReportCardRelease } from "@/lib/report-card-release";
 import { getGradingBands, resolveGrade } from "@/lib/grading";
 
@@ -68,6 +69,7 @@ export async function GET(req: NextRequest) {
     include: { application: { include: { session: true } }, academicSession: true },
   });
   if (!student) return NextResponse.json({ error: "Student not found" }, { status: 404 });
+  if (!(await teacherCanAccessEnrollment(user, student.id))) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   if (!student.academicSessionId || !student.academicSession) return NextResponse.json({ error: "Student is not placed in an academic session" }, { status: 409 });
 
   const currentSessionId = student.academicSessionId;
