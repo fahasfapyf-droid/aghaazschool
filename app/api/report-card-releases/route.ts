@@ -17,9 +17,10 @@ export async function GET(req: NextRequest) {
   const studentId = req.nextUrl.searchParams.get("studentId");
   if (!studentId) return NextResponse.json({ error: "studentId is required" }, { status: 400 });
 
-  const student = await prisma.enrollment.findUnique({ where: { id: studentId }, include: { application: { select: { sessionId: true } } } });
+  const student = await prisma.enrollment.findUnique({ where: { id: studentId }, select: { id: true, academicSessionId: true } });
   if (!student) return NextResponse.json({ error: "Student not found" }, { status: 404 });
-  const release = await findReportCardRelease(studentId, student.application.sessionId);
+  if (!student.academicSessionId) return NextResponse.json({ error: "Student is not placed in an academic session" }, { status: 409 });
+  const release = await findReportCardRelease(studentId, student.academicSessionId);
   return NextResponse.json({ released: Boolean(release), release });
 }
 
@@ -33,10 +34,12 @@ export async function POST(req: NextRequest) {
     const studentId = typeof body?.studentId === "string" ? body.studentId.trim() : "";
     if (!studentId) return NextResponse.json({ error: "studentId is required" }, { status: 400 });
 
-    const student = await prisma.enrollment.findUnique({ where: { id: studentId }, include: { application: { select: { sessionId: true } } } });
+    const student = await prisma.enrollment.findUnique({ where: { id: studentId }, select: { id: true, academicSessionId: true } });
     if (!student) return NextResponse.json({ error: "Student not found" }, { status: 404 });
+    if (!student.academicSessionId) return NextResponse.json({ error: "Student is not placed in an academic session" }, { status: 409 });
 
-    const existing = await findReportCardRelease(studentId, student.application.sessionId);
+    const currentSessionId = student.academicSessionId;
+    const existing = await findReportCardRelease(studentId, currentSessionId);
     if (existing) return NextResponse.json({ released: true, release: existing, alreadyReleased: true });
 
     const reportUrl = new URL(`/api/report-cards?studentId=${encodeURIComponent(studentId)}`, req.url);
@@ -52,7 +55,7 @@ export async function POST(req: NextRequest) {
     try {
       const release = await createReportCardRelease({
         studentId,
-        sessionId: student.application.sessionId,
+        sessionId: currentSessionId,
         snapshot: report,
         snapshotHash,
         releasedBy: user.id,
@@ -62,12 +65,12 @@ export async function POST(req: NextRequest) {
         action: "REPORT_CARD_RELEASED",
         entityType: "ReportCardRelease",
         entityId: release.id,
-        metadata: { studentId, sessionId: student.application.sessionId, snapshotHash },
+        metadata: { studentId, sessionId: currentSessionId, snapshotHash },
         context: requestAuditContext(req),
       });
       return NextResponse.json({ released: true, release }, { status: 201 });
     } catch (error) {
-      const raceWinner = await findReportCardRelease(studentId, student.application.sessionId);
+      const raceWinner = await findReportCardRelease(studentId, currentSessionId);
       if (raceWinner) return NextResponse.json({ released: true, release: raceWinner, alreadyReleased: true });
       throw error;
     }
