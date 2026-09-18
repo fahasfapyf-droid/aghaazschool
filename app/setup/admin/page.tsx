@@ -7,6 +7,7 @@ export default function AdminSetupPage() {
   const router = useRouter();
   const [bootstrapSecret, setBootstrapSecret] = useState("");
   const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
@@ -28,7 +29,7 @@ export default function AdminSetupPage() {
       const response = await fetch("/api/setup/admin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bootstrapSecret, name, email, password }),
+        body: JSON.stringify({ bootstrapSecret, name, phone, email, password }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Unable to create administrator.");
@@ -55,7 +56,8 @@ export default function AdminSetupPage() {
         <form onSubmit={submit} className="login-form">
           <label>Bootstrap secret<input type="password" autoComplete="off" value={bootstrapSecret} onChange={e => setBootstrapSecret(e.target.value)} required /></label>
           <label>Name<input type="text" autoComplete="name" value={name} onChange={e => setName(e.target.value)} required /></label>
-          <label>Email<input type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="admin@school.com" required /></label>
+          <label>Phone number<input type="tel" inputMode="tel" autoComplete="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="03XX XXXXXXX" required /></label>
+          <label>Email <small>(optional)</small><input type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="admin@school.com" /></label>
           <label>Password<input type="password" autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)} minLength={12} required /></label>
           <label>Confirm password<input type="password" autoComplete="new-password" value={confirmation} onChange={e => setConfirmation(e.target.value)} minLength={12} required /></label>
           {error && <div className="login-error" role="alert">{error}</div>}
