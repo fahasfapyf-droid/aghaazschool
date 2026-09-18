@@ -25,7 +25,9 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const bootstrapSecret = String(body.bootstrapSecret ?? "").trim();
     const name = String(body.name ?? "").trim();
-    const email = String(body.email ?? "").trim().toLowerCase();
+    const phone = String(body.phone ?? "").trim().replace(/[\s().-]/g, "");
+    const emailValue = String(body.email ?? "").trim().toLowerCase();
+    const email = emailValue || null;
     const password = String(body.password ?? "");
 
     if (!secretsMatch(bootstrapSecret, configured)) {
@@ -36,7 +38,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Name must be between 2 and 100 characters." }, { status: 400 });
     }
 
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
+    if (!/^\+?\d{8,15}$/.test(phone)) {
+      return NextResponse.json({ error: "Enter a valid phone number." }, { status: 400 });
+    }
+
+    if (email && (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254)) {
       return NextResponse.json({ error: "Enter a valid email address." }, { status: 400 });
     }
 
@@ -56,22 +62,24 @@ export async function POST(request: NextRequest) {
       }
 
       const existingUser = await tx.user.findUnique({
-        where: { email },
+        where: { phone },
         select: { id: true },
       });
       if (existingUser) {
-        throw new Error("EMAIL_ALREADY_EXISTS");
+        throw new Error("PHONE_ALREADY_EXISTS");
       }
 
       return tx.user.create({
         data: {
           name,
+          phone,
           email,
           passwordHash: createPasswordHash(password),
+          mustChangePassword: false,
           role: "SUPER_ADMIN",
           active: true,
         },
-        select: { id: true, name: true, email: true, role: true },
+        select: { id: true, name: true, phone: true, email: true, role: true },
       });
     });
 
@@ -80,8 +88,8 @@ export async function POST(request: NextRequest) {
     if (error instanceof Error && error.message === "ADMIN_BOOTSTRAP_CLOSED") {
       return NextResponse.json({ error: "Admin bootstrap is already closed because an active super administrator exists." }, { status: 409 });
     }
-    if (error instanceof Error && error.message === "EMAIL_ALREADY_EXISTS") {
-      return NextResponse.json({ error: "That email address already belongs to a user." }, { status: 409 });
+    if (error instanceof Error && error.message === "PHONE_ALREADY_EXISTS") {
+      return NextResponse.json({ error: "That phone number already belongs to a user." }, { status: 409 });
     }
     return NextResponse.json({ error: "Unable to create the administrator." }, { status: 500 });
   }
