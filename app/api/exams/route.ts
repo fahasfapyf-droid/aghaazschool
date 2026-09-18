@@ -26,6 +26,7 @@ const adminRoles = new Set(["SUPER_ADMIN", "ADMIN"]);
 export async function GET(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!["SUPER_ADMIN", "ADMIN", "TEACHER"].includes(user.role)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const status = req.nextUrl.searchParams.get("status") || undefined;
   const exams = await prisma.exam.findMany({
     where: status ? { status: status as "DRAFT" | "SCHEDULED" | "PUBLISHED" } : undefined,
