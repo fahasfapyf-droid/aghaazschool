@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
       if (staff[0].userId) return NextResponse.json({ error: "That staff record is already linked to a user account." }, { status: 409 });
     }
     const user = await prisma.$transaction(async tx => {
-      const created = await tx.user.create({ data: { name, phone, email, role, passwordHash: createPasswordHash(password) }, select: { id: true, name: true, phone: true, email: true, role: true, active: true, updatedAt: true } });
+      const created = await tx.user.create({ data: { name, phone, email, role, passwordHash: createPasswordHash(password), mustChangePassword: true }, select: { id: true, name: true, phone: true, email: true, role: true, active: true, updatedAt: true } });
       if (staffId) await tx.$executeRawUnsafe(`UPDATE "Staff" SET "userId"=$1,"updatedAt"=NOW() WHERE "id"=$2`, created.id, staffId);
       return created;
     });
