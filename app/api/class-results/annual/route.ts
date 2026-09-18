@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
   const expectedKeys = new Set(subjects.map(item => `${item.term}:${item.subject.toLowerCase()}`));
 
   const students = await prisma.enrollment.findMany({
-    where: { className, ...(section ? { section } : {}), OR: [{ academicSessionId: sessionId }, { academicSessionId: null, application: { sessionId } }] },
+    where: { className, ...(section ? { section } : {}), academicSessionId: sessionId },
     include: { application: true },
     orderBy: { application: { studentName: "asc" } }
   });
