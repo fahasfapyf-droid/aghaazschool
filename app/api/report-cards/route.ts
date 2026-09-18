@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
-import { getTeacherSectionIds, teacherCanAccessEnrollment } from "@/lib/student-access";
+import { teacherCanAccessEnrollment } from "@/lib/student-access";
 import { findReportCardRelease } from "@/lib/report-card-release";
 import { getGradingBands, resolveGrade } from "@/lib/grading";
 
