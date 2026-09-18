@@ -382,7 +382,7 @@ model EnrollmentHistory {
   note String?
   createdBy String?
   createdAt DateTime @default(now())
-  enrollment Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  enrollment Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Restrict)
   @@index([enrollmentId, effectiveAt])
   @@index([action, effectiveAt])
   @@index([academicSessionId])
@@ -394,7 +394,7 @@ model Attendance {
   date DateTime
   status AttendanceStatus
   remarks String?
-  student Enrollment @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  student Enrollment @relation(fields: [studentId], references: [id], onDelete: Restrict)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   @@unique([studentId, date])
