@@ -15,6 +15,11 @@ export async function getGradingBands(sessionId: string): Promise<GradingBand[]>
   return bands.map(band => ({ label: band.label, minPercentage: Number(band.minPercentage), maxPercentage: Number(band.maxPercentage), displayOrder: Number(band.displayOrder) }));
 }
 
+export function gradingLabelToEnum(label: string | null): string | null {
+  const map: Record<string, string> = { "A+": "A_PLUS", "A_PLUS": "A_PLUS", "A": "A", "B+": "B_PLUS", "B_PLUS": "B_PLUS", "B": "B", "C": "C", "D": "D", "F": "TRY_AGAIN", "TRY_AGAIN": "TRY_AGAIN" };
+  return label && map[label.toUpperCase()] ? map[label.toUpperCase()] : null;
+}
+
 export function resolveGrade(bands: GradingBand[], percentage: number): string | null {
   if (!Number.isFinite(percentage) || percentage < 0) return null;
   return bands.find(band => percentage >= band.minPercentage && percentage <= band.maxPercentage)?.label || null;
