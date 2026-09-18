@@ -28,6 +28,7 @@ export async function POST(request:NextRequest){
    const source=await tx.$queryRawUnsafe<Array<Record<string,unknown>>>(`SELECT s."id",s."gradeId",s."name" AS "sectionName",g."name" AS "gradeName",g."sessionId",ss."name" AS "sessionName",e."id" AS "enrollmentId",e."className",e."section",e."admissionNumber",a."studentName" FROM "AcademicSection" s JOIN "AcademicGrade" g ON g.id=s."gradeId" JOIN "AcademicSession" ss ON ss.id=g."sessionId" JOIN "Enrollment" e ON e."academicSectionId"=s.id JOIN "Application" a ON a.id=e."applicationId" WHERE s.id=$1 AND s."active"=true AND g."active"=true AND e."academicSessionId"=g."sessionId" AND lower(e."status") IN ('active','enrolled') ORDER BY a."studentName"`,sourceSectionId);
    if(!source.length)return {count:0,id:null};
    const t=target[0];
+   await tx.$queryRawUnsafe(`SELECT "id" FROM "AcademicSection" WHERE "id"=$1 FOR UPDATE`,targetSectionId);
    const occupancyRows=await tx.$queryRawUnsafe<Array<{count:bigint}>>(`SELECT COUNT(*)::bigint AS count FROM "Enrollment" WHERE "academicSectionId"=$1 AND lower("status") IN ('active','enrolled')`,targetSectionId);
    const occupancy=Number(occupancyRows[0]?.count||0);
    if(t.capacity!==null&&t.capacity!==undefined&&occupancy+source.length>Number(t.capacity))throw new Error(`Target section has capacity ${t.capacity}; ${occupancy} places are currently occupied and ${source.length} students are selected.`);
