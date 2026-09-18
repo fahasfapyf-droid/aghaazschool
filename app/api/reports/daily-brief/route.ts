@@ -58,7 +58,7 @@ export async function GET(request: NextRequest) {
          ORDER BY sa."date" DESC LIMIT 10`,
         new Date(startOfDay.getTime() - 7 * 86400000),
       ).catch(() => []),
-      prisma.admission.count({
+      prisma.application.count({
         where: { status: { in: ["SUBMITTED", "UNDER_REVIEW", "APPROVED"] } },
       }).catch(() => 0),
       prisma.user.findMany({
