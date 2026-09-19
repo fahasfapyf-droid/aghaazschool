@@ -24,7 +24,3 @@ CREATE TABLE IF NOT EXISTS "FamilyAccountStudent" (
 );
 
 CREATE INDEX IF NOT EXISTS "FamilyAccountStudent_enrollmentId_idx" ON "FamilyAccountStudent"("enrollmentId");
-
-INSERT INTO "_prisma_migrations" ("id","checksum","finished_at","migration_name","logs","rolled_back_at","started_at","applied_steps_count")
-VALUES ('family_portal_accounts_20260919100000','family-portal-accounts','2026-09-19 00:00:00+00','20260919100000_family_portal_accounts',NULL,NULL,'2026-09-19 00:00:00+00',1)
-ON CONFLICT ("migration_name") DO NOTHING;
