@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
           previousSchool: data.previousSchool || undefined,
           remarks: data.remarks || undefined,
           photoDataUrl: data.photoDataUrl || undefined,
-          formData: data.formData || undefined,
+          formData: data.formData ? JSON.parse(JSON.stringify(data.formData)) : undefined,
           status: "UNDER_REVIEW",
         },
         include: { session: true, enquiry: true },
