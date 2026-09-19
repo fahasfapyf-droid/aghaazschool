@@ -67,5 +67,7 @@ jobs:
         run: npm run test:parent-access
       - name: Verify attendance access hardening
         run: npm run test:attendance-access
+      - name: Verify finance integrity
+        run: npm run test:finance-integrity
       - name: Production build
         run: npm run build

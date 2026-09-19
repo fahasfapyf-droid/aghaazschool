@@ -22,7 +22,8 @@
     "test:batch-promotion": "node scripts/verify-batch-promotion-consolidation.mjs",
     "test:enrollment-lifecycle": "node scripts/verify-enrollment-lifecycle-consolidation.mjs",
     "test:parent-access": "node scripts/verify-parent-access-hardening.mjs",
-    "test:attendance-access": "node scripts/verify-attendance-access-hardening.mjs"
+    "test:attendance-access": "node scripts/verify-attendance-access-hardening.mjs",
+    "test:finance-integrity": "node scripts/verify-finance-integrity.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.14.0",

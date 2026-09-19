@@ -49,8 +49,14 @@ export async function POST(request: NextRequest) {
       for (let attempt = 0; attempt < 3; attempt += 1) {
         try {
           const result = await prisma.$transaction(async tx => {
+            await tx.$queryRaw`
+              SELECT "id" FROM "FeeInvoice" WHERE "id" = ${parsed.data.invoiceId} FOR UPDATE
+            `;
             const invoice = await tx.feeInvoice.findUnique({ where: { id: parsed.data.invoiceId }, include: { payments: true } });
             if (!invoice) throw new Error("INVOICE_NOT_FOUND");
+            if (!["PENDING", "PARTIAL"].includes(String(invoice.status).toUpperCase())) {
+              throw new Error(`INVOICE_NOT_PAYABLE:${invoice.status}`);
+            }
             const alreadyPaid = invoice.payments.reduce((sum, p) => sum + Number(p.amount), 0);
             const outstanding = Math.max(0, Number(invoice.netAmount) - alreadyPaid);
             if (parsed.data.amount > outstanding) throw new Error(`PAYMENT_EXCEEDS_BALANCE:${outstanding}`);
@@ -66,6 +72,7 @@ export async function POST(request: NextRequest) {
         } catch (error) {
           lastError = error;
           if (error instanceof Error && error.message === "INVOICE_NOT_FOUND") return NextResponse.json({ error: "Invoice not found" }, { status: 404 });
+          if (error instanceof Error && error.message.startsWith("INVOICE_NOT_PAYABLE:")) return NextResponse.json({ error: "This invoice is not open for payment." }, { status: 409 });
           if (error instanceof Error && error.message.startsWith("PAYMENT_EXCEEDS_BALANCE:")) {
             const outstanding = Number(error.message.split(":")[1]);
             return NextResponse.json({ error: `Payment exceeds the outstanding balance of PKR ${outstanding.toLocaleString()}.` }, { status: 400 });
