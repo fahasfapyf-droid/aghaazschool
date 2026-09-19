@@ -95,6 +95,7 @@ enum UserRole {
   TEACHER
   ACCOUNTANT
   RECEPTIONIST
+  FAMILY
 }
 
 enum DayOfWeek {
@@ -360,6 +361,7 @@ model Enrollment {
   homeworkSubmissions HomeworkSubmission[]
   reportCardReleases ReportCardRelease[]
   history EnrollmentHistory[]
+  familyAccounts FamilyAccountStudent[]
   @@index([academicSessionId])
   @@index([academicGradeId])
   @@index([academicSectionId])
@@ -708,9 +710,10 @@ model HomeworkSubmission {
   @@index([studentId, status])
 }
 
-model User {
+model FamilyAccount {\n  id String @id @default(cuid())\n  userId String @unique\n  user User @relation(fields: [userId], references: [id], onDelete: Cascade)\n  students FamilyAccountStudent[]\n  createdAt DateTime @default(now())\n  updatedAt DateTime @updatedAt\n}\n\nmodel FamilyAccountStudent {\n  familyAccountId String\n  enrollmentId String\n  familyAccount FamilyAccount @relation(fields: [familyAccountId], references: [id], onDelete: Cascade)\n  enrollment Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)\n  createdAt DateTime @default(now())\n  @@id([familyAccountId, enrollmentId])\n  @@index([enrollmentId])\n}\n\nmodel User {
   id String @id @default(cuid())
   name String
+  username String? @unique
   phone String? @unique
   email String? @unique
   passwordHash String
@@ -720,6 +723,7 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   auditLogs AuditLog[]
+  familyAccount FamilyAccount?
   reportCardReleases ReportCardRelease[]
 }
 
