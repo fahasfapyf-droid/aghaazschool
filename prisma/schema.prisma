@@ -728,7 +728,8 @@ model FamilyAccountStudent {
   @@id([familyAccountId, enrollmentId])
   @@index([enrollmentId])
 }
-\nmodel User {
+
+model User {
   id String @id @default(cuid())
   name String
   username String? @unique
