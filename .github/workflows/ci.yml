@@ -63,5 +63,7 @@ jobs:
         run: npm run test:batch-promotion
       - name: Verify enrollment lifecycle consolidation
         run: npm run test:enrollment-lifecycle
+      - name: Verify parent access hardening
+        run: npm run test:parent-access
       - name: Production build
         run: npm run build
