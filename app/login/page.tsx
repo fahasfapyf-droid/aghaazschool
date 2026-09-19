@@ -18,7 +18,7 @@ export default function LoginPage() {
       const response = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ identifier, password }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Unable to sign in.");
-      router.replace(data.user.mustChangePassword ? "/account/security?required=1" : "/");
+      router.replace(data.user.mustChangePassword ? "/account/security?required=1" : data.user.role === "FAMILY" ? "/family" : "/");
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to sign in.");

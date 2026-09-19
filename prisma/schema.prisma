@@ -710,7 +710,25 @@ model HomeworkSubmission {
   @@index([studentId, status])
 }
 
-model FamilyAccount {\n  id String @id @default(cuid())\n  userId String @unique\n  user User @relation(fields: [userId], references: [id], onDelete: Cascade)\n  students FamilyAccountStudent[]\n  createdAt DateTime @default(now())\n  updatedAt DateTime @updatedAt\n}\n\nmodel FamilyAccountStudent {\n  familyAccountId String\n  enrollmentId String\n  familyAccount FamilyAccount @relation(fields: [familyAccountId], references: [id], onDelete: Cascade)\n  enrollment Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)\n  createdAt DateTime @default(now())\n  @@id([familyAccountId, enrollmentId])\n  @@index([enrollmentId])\n}\n\nmodel User {
+model FamilyAccount {
+  id String @id @default(cuid())
+  userId String @unique
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  students FamilyAccountStudent[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model FamilyAccountStudent {
+  familyAccountId String
+  enrollmentId String
+  familyAccount FamilyAccount @relation(fields: [familyAccountId], references: [id], onDelete: Cascade)
+  enrollment Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  @@id([familyAccountId, enrollmentId])
+  @@index([enrollmentId])
+}
+\nmodel User {
   id String @id @default(cuid())
   name String
   username String? @unique
