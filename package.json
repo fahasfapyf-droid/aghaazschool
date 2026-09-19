@@ -24,7 +24,8 @@
     "test:parent-access": "node scripts/verify-parent-access-hardening.mjs",
     "test:attendance-access": "node scripts/verify-attendance-access-hardening.mjs",
     "test:finance-integrity": "node scripts/verify-finance-integrity.mjs",
-    "test:results-teacher-scope": "node scripts/verify-results-teacher-scope.mjs"
+    "test:results-teacher-scope": "node scripts/verify-results-teacher-scope.mjs",
+    "test:production-readiness": "node scripts/verify-production-readiness.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.14.0",
