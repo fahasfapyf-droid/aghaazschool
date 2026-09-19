@@ -81,6 +81,8 @@ export async function POST(request: NextRequest) {
           guardianEmail: data.guardianEmail || undefined,
           previousSchool: data.previousSchool || undefined,
           remarks: data.remarks || undefined,
+          photoDataUrl: data.photoDataUrl || undefined,
+          formData: data.formData || undefined,
           status: "UNDER_REVIEW",
         },
         include: { session: true, enquiry: true },

@@ -12,6 +12,8 @@ export const admissionCreateSchema = z.object({
   previousSchool: z.string().trim().max(160).optional(),
   sessionName: z.string().trim().min(1).max(80),
   remarks: z.string().trim().max(1000).optional(),
+  photoDataUrl: z.string().max(4000000).optional(),
+  formData: z.record(z.string(), z.unknown()).optional(),
 });
 
 export type AdmissionCreateInput = z.infer<typeof admissionCreateSchema>;

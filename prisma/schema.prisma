@@ -278,6 +278,8 @@ model Application {
   status AdmissionStatus @default(NEW)
   assignedTo String?
   remarks String?
+  photoDataUrl String? @db.Text
+  formData Json?
   enquiry AdmissionEnquiry? @relation(fields: [enquiryId], references: [id])
   session AcademicSession @relation(fields: [sessionId], references: [id])
   documents AdmissionDocument[]
