@@ -1,7 +1,6 @@
-import { createHash } from "node:crypto";
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getParentSession } from "@/lib/parent-session";
 
 const COOKIE = "aghaaz_parent_session";
 function hashToken(token: string) { return createHash("sha256").update(token).digest("hex"); }
@@ -12,7 +11,8 @@ async function getEnrollment() {
   return rows[0]?.enrollmentId || null;
 }
 export async function GET() {
-  const enrollmentId = await getEnrollment();
+  const session = await getParentSession();
+  const enrollmentId = session?.enrollmentId;
   if (!enrollmentId) return NextResponse.json({ error: "Parent session required." }, { status: 401 });
   try {
     const records = await prisma.attendance.findMany({ where: { studentId: enrollmentId }, orderBy: { date: "desc" }, take: 120 });
