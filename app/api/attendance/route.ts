@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, roleAllowed } from "@/lib/auth";
 import { requestAuditContext, writeAuditLog } from "@/lib/audit";
+import { getTeacherSectionIds } from "@/lib/student-access";
 import { queueParentNotification } from "@/lib/communication/events";
 import { z } from "zod";
 
@@ -37,9 +38,11 @@ export async function GET(request: NextRequest) {
     const user = await getCurrentUser();
     if (!user) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
     if (!roleAllowed(user.role, [...attendanceRoles])) return NextResponse.json({ error: "You do not have permission to access attendance." }, { status: 403 });
+    const teacherSectionIds = user.role === "TEACHER" ? await getTeacherSectionIds(user.id) : null;
+    if (teacherSectionIds?.length === 0) return NextResponse.json([]);
     const range = bounds(request.nextUrl.searchParams.get("date") || undefined);
     if (!range) return NextResponse.json({ error: "Invalid date. Use YYYY-MM-DD." }, { status: 400 });
-    const records = await prisma.attendance.findMany({ where: { date: { gte: range.start, lte: range.end } }, include: { student: { include: { application: true } } }, orderBy: { student: { application: { studentName: "asc" } } } });
+    const records = await prisma.attendance.findMany({ where: { date: { gte: range.start, lte: range.end }, ...(teacherSectionIds ? { student: { academicSectionId: { in: teacherSectionIds } } } : {}) }, include: { student: { include: { application: true } } }, orderBy: { student: { application: { studentName: "asc" } } } });
     return NextResponse.json(records);
   } catch (error) { console.error(error); return NextResponse.json({ error: "Unable to load attendance" }, { status: 500 }); }
 }
@@ -55,9 +58,21 @@ export async function POST(request: NextRequest) {
     const range = bounds(parsed.data.date);
     if (!range) return NextResponse.json({ error: "Invalid date. Use YYYY-MM-DD." }, { status: 400 });
 
+    const teacherSectionIds = user.role === "TEACHER" ? await getTeacherSectionIds(user.id) : null;
+    if (teacherSectionIds?.length === 0) return NextResponse.json({ error: "Your teacher account is not assigned to an academic section." }, { status: 403 });
+
     const studentIds = parsed.data.records.map(r => r.studentId);
     if (new Set(studentIds).size !== studentIds.length) return NextResponse.json({ error: "Each student may appear only once in an attendance submission." }, { status: 400 });
-    const students = await prisma.$queryRawUnsafe<Array<{ id: string }>>(`SELECT "id" FROM "Enrollment" WHERE "id" = ANY($1::text[]) AND lower("status") IN ('active','enrolled')`, studentIds);
+    const students = teacherSectionIds
+      ? await prisma.$queryRawUnsafe<Array<{ id: string }>>(
+        `SELECT "id" FROM "Enrollment" WHERE "id" = ANY($1::text[]) AND "academicSectionId" = ANY($2::text[]) AND lower("status") IN ('active','enrolled')`,
+        studentIds,
+        teacherSectionIds,
+      )
+      : await prisma.$queryRawUnsafe<Array<{ id: string }>>(
+        `SELECT "id" FROM "Enrollment" WHERE "id" = ANY($1::text[]) AND lower("status") IN ('active','enrolled')`,
+        studentIds,
+      );
     if (students.length !== studentIds.length) {
       const found = new Set(students.map(s => s.id));
       return NextResponse.json({ error: "Attendance includes a missing or inactive student.", studentIds: studentIds.filter(id => !found.has(id)) }, { status: 400 });
