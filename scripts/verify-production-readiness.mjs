@@ -15,7 +15,7 @@ const checks = [
   ["production cron is explicitly declared", Array.isArray(vercel.crons) && vercel.crons.some(item => item.path === "/api/reports/daily-brief")],
   ["enrollment status has canonical ACTIVE default", schema.includes('status String @default("ACTIVE")')],
   ["fee invoices have indexed student/status lookup", schema.includes("@@index([studentId, status])")],
-  ["attendance has one record per student/date", schema.includes("@@unique([studentId, date])"),
+  ["attendance has one record per student/date", schema.includes("@@unique([studentId, date])")],
 ];
 
 let failed = false;
