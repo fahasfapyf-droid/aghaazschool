@@ -71,5 +71,7 @@ jobs:
         run: npm run test:finance-integrity
       - name: Verify teacher result scope
         run: npm run test:results-teacher-scope
+      - name: Verify production readiness
+        run: npm run test:production-readiness
       - name: Production build
         run: npm run build
