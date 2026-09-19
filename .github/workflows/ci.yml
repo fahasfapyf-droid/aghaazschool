@@ -69,5 +69,7 @@ jobs:
         run: npm run test:attendance-access
       - name: Verify finance integrity
         run: npm run test:finance-integrity
+      - name: Verify teacher result scope
+        run: npm run test:results-teacher-scope
       - name: Production build
         run: npm run build
