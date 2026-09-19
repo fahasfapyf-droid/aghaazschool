@@ -1,7 +1,6 @@
-import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { createHash } from "node:crypto";
+import { getParentSession } from "@/lib/parent-session";
 
 const COOKIE = "aghaaz_parent_session";
 
@@ -17,14 +16,14 @@ async function getSession() {
 }
 
 export async function GET() {
-  const current = await getSession();
+  const current = await getParentSession();
   if (!current) return NextResponse.json({ error: "Parent session required." }, { status: 401 });
   const rows = await prisma.leaveRequest.findMany({ where: { studentId: current.enrollmentId }, orderBy: { createdAt: "desc" }, take: 50 });
   return NextResponse.json({ requests: rows });
 }
 
 export async function POST(request: NextRequest) {
-  const current = await getSession();
+  const current = await getParentSession();
   if (!current) return NextResponse.json({ error: "Parent session required." }, { status: 401 });
   try {
     const body = await request.json();
