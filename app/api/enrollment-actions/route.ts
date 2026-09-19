@@ -53,7 +53,9 @@ export async function POST(request: NextRequest) {
         },
       });
       if (!enrollment) throw new Error("ENROLLMENT_NOT_FOUND");
-      if (!activeStatuses.includes(enrollment.status)) throw new Error(`ENROLLMENT_NOT_ACTIVE:${enrollment.status}`);
+      if (input.action !== "REACTIVATE" && !activeStatuses.includes(enrollment.status)) {
+      throw new Error(`ENROLLMENT_NOT_ACTIVE:${enrollment.status}`);
+    }
 
       const source = {
         sessionId: enrollment.academicSessionId,
