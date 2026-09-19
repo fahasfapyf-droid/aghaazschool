@@ -73,5 +73,7 @@ jobs:
         run: npm run test:results-teacher-scope
       - name: Verify production readiness
         run: npm run test:production-readiness
+      - name: Verify production migration status workflow
+        run: npm run test:production-migration-status
       - name: Production build
         run: npm run build
