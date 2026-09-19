@@ -29,6 +29,14 @@ const schema = z.discriminatedUnion("action", [
     targetSectionId: z.string().trim().min(1),
     note: z.string().trim().max(1000).optional(),
   }),
+  z.object({
+    action: z.literal("PROMOTE"),
+    enrollmentId: z.string().trim().min(1),
+    targetSessionId: z.string().trim().min(1),
+    targetGradeId: z.string().trim().min(1),
+    targetSectionId: z.string().trim().min(1),
+    note: z.string().trim().max(1000).optional(),
+  }),
 ]);
 
 export async function POST(request: NextRequest) {
@@ -53,7 +61,9 @@ export async function POST(request: NextRequest) {
         },
       });
       if (!enrollment) throw new Error("ENROLLMENT_NOT_FOUND");
-      if (!activeStatuses.includes(enrollment.status)) throw new Error(`ENROLLMENT_NOT_ACTIVE:${enrollment.status}`);
+      if (input.action !== "REACTIVATE" && !activeStatuses.includes(enrollment.status)) {
+      throw new Error(`ENROLLMENT_NOT_ACTIVE:${enrollment.status}`);
+    }
 
       const source = {
         sessionId: enrollment.academicSessionId,
@@ -149,7 +159,7 @@ export async function POST(request: NextRequest) {
       await tx.enrollmentHistory.create({
         data: {
           enrollmentId: enrollment.id,
-          action: "TRANSFERRED_FROM",
+          action: input.action === "PROMOTE" ? "PROMOTED_FROM" : "TRANSFERRED_FROM",
           academicSessionId: source.sessionId,
           academicSessionName: source.sessionName,
           academicGradeId: source.gradeId,
@@ -159,7 +169,7 @@ export async function POST(request: NextRequest) {
           className: source.className,
           section: source.section,
           status: enrollment.status,
-          note: input.note || `Transferred to ${target.grade.name} ${target.name}`,
+          note: input.note || (input.action === "PROMOTE" ? `Promoted to ${target.grade.name} ${target.name}` : `Transferred to ${target.grade.name} ${target.name}`),
           createdBy: user.id,
         },
       });
@@ -179,7 +189,7 @@ export async function POST(request: NextRequest) {
       await tx.enrollmentHistory.create({
         data: {
           enrollmentId: enrollment.id,
-          action: "TRANSFERRED_TO",
+          action: input.action === "PROMOTE" ? "PROMOTED_TO" : "TRANSFERRED_TO",
           academicSessionId: target.grade.sessionId,
           academicSessionName: target.grade.session.name,
           academicGradeId: target.gradeId,
@@ -189,17 +199,17 @@ export async function POST(request: NextRequest) {
           className: target.grade.name,
           section: target.name,
           status: "ACTIVE",
-          note: input.note || "Enrollment transferred",
+          note: input.note || (input.action === "PROMOTE" ? "Enrollment promoted" : "Enrollment transferred"),
           createdBy: user.id,
         },
       });
 
-      return { action: "TRANSFER", enrollment: updated, source, target: { sessionId: target.grade.sessionId, sessionName: target.grade.session.name, gradeId: target.gradeId, gradeName: target.grade.name, sectionId: target.id, sectionName: target.name } };
+      return { action: input.action, enrollment: updated, source, target: { sessionId: target.grade.sessionId, sessionName: target.grade.session.name, gradeId: target.gradeId, gradeName: target.grade.name, sectionId: target.id, sectionName: target.name } };
     });
 
     await writeAuditLog({
       userId: user.id,
-      action: input.action === "WITHDRAW" ? "ENROLLMENT_WITHDRAWN" : input.action === "REACTIVATE" ? "ENROLLMENT_REACTIVATED" : "ENROLLMENT_TRANSFERRED",
+      action: input.action === "WITHDRAW" ? "ENROLLMENT_WITHDRAWN" : input.action === "REACTIVATE" ? "ENROLLMENT_REACTIVATED" : input.action === "PROMOTE" ? "ENROLLMENT_PROMOTED" : "ENROLLMENT_TRANSFERRED",
       entityType: "Enrollment",
       entityId: input.enrollmentId,
       metadata: input.action === "WITHDRAW" ? { source: result.source, note: input.note || null } : { source: result.source, target: result.target, note: input.note || null },
