@@ -29,12 +29,12 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const phone = String(body.phone ?? "").trim().replace(/[\s().-]/g, "");
+    const identifier = String(body.identifier ?? body.phone ?? "").trim();
+    const phone = identifier.replace(/[\s().-]/g, "");
     const password = String(body.password ?? "");
-    if (!phone || !password) return NextResponse.json({ error: "Phone number and password are required." }, { status: 400 });
-    if (!/^\+?\d{8,15}$/.test(phone)) return NextResponse.json({ error: "Enter a valid phone number." }, { status: 400 });
-
-    const user = await prisma.user.findUnique({ where: { phone } });
+    if (!identifier || !password) return NextResponse.json({ error: "Username/phone and password are required." }, { status: 400 });
+    const isPhone = /^\+?\d{8,15}$/.test(phone);
+    const user = isPhone ? await prisma.user.findUnique({ where: { phone } }) : await prisma.user.findUnique({ where: { username: identifier.toLowerCase() } });
     if (!user || !user.active || !verifyPassword(password, user.passwordHash)) {
       await writeAuditLog({ action: "LOGIN_FAILED", entityType: "User", metadata: { reason: "invalid_credentials" }, context });
       return NextResponse.json({ error: "Invalid phone number or password." }, { status: 401 });
