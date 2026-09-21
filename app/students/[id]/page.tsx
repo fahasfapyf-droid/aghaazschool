@@ -11,19 +11,19 @@ type S={id:string;studentName:string;dateOfBirth?:string|null;gender?:string|nul
 const money=(v:any)=>Number(v||0).toLocaleString();
 const date=(v?:string|null)=>v?new Date(v).toLocaleDateString():"—";
 const statusLabel=(v?:string)=>v?v.replaceAll("_"," "):"—";
-const referenceLabel=(key:string)=>key.replaceAll("_"," ").replace(/\\b\\w/g,m=>m.toUpperCase());
+const referenceLabel=(key:string)=>key.replaceAll("_"," ").replace(/\b\w/g,m=>m.toUpperCase());
 const isLockedReferenceField=(key:string)=>["gr","rownumber","source","sheet","shift","class","currentclass","status","status1","d.o.a"].includes(key.toLowerCase().replace(/[^a-z0-9.]/g,""));
 const displayReferenceValue=(v:unknown)=>{
   if(v===null||v===undefined||v==="")return "—";
   if(typeof v==="object")return JSON.stringify(v);
   const text=String(v);
-  const iso=text.match(/^(\\d{4})-(\\d{2})-(\\d{2})T/);
+  const iso=text.match(/^\d{4}-\d{2}-\d{2}T/);
   if(iso)return new Date(text).toLocaleDateString();
   return text;
 };
 
 export default function Student360({params}:{params:Promise<{id:string}>}){
- const[s,setS]=useState<S|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState(""),[editing,setEditing]=useState(false),[editSaving,setEditSaving]=useState(false),[editError,setEditError]=useState(""),[editForm,setEditForm]=useState<Record<string,any>>({});[sessions,setSessions]=useState<AcademicSession[]>([]),[grades,setGrades]=useState<Grade[]>([]),[sections,setSections]=useState<Section[]>([]),[action,setAction]=useState<"PROMOTE"|"TRANSFER"|"WITHDRAW"|"LEFT"|"EXPEL"|"REACTIVATE"|"READMIT"|null>(null),[sessionId,setSessionId]=useState(""),[gradeId,setGradeId]=useState(""),[sectionId,setSectionId]=useState(""),[note,setNote]=useState(""),[saving,setSaving]=useState(false),[actionError,setActionError]=useState(""),[readmitResult,setReadmitResult]=useState<{id:string;grNumber:string;admissionNumber:string}|null>(null);
+ const[s,setS]=useState<S|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState(""),[editing,setEditing]=useState(false),[editSaving,setEditSaving]=useState(false),[editError,setEditError]=useState(""),[editForm,setEditForm]=useState<Record<string,any>>({}),[sessions,setSessions]=useState<AcademicSession[]>([]),[grades,setGrades]=useState<Grade[]>([]),[sections,setSections]=useState<Section[]>([]),[action,setAction]=useState<"PROMOTE"|"TRANSFER"|"WITHDRAW"|"LEFT"|"EXPEL"|"REACTIVATE"|"READMIT"|null>(null),[sessionId,setSessionId]=useState(""),[gradeId,setGradeId]=useState(""),[sectionId,setSectionId]=useState(""),[note,setNote]=useState(""),[saving,setSaving]=useState(false),[actionError,setActionError]=useState(""),[readmitResult,setReadmitResult]=useState<{id:string;grNumber:string;admissionNumber:string}|null>(null);
  const load=async()=>{try{const{id}=await params;const[r,a]=await Promise.all([fetch(`/api/students/${id}`),fetch("/api/academic-structure")]);const[d,structure]=await Promise.all([r.json(),a.json()]);if(!r.ok)throw Error(d.error||"Unable to load student");setS(d);if(a.ok){setSessions(structure.sessions||[]);setGrades(structure.grades||[]);setSections(structure.sections||[]);}}catch(e){setError(e instanceof Error?e.message:"Unable to load student")}finally{setLoading(false)}};
  useEffect(()=>{load()},[params]);
  const currentGrades=useMemo(()=>grades.filter(g=>!sessionId||g.sessionId===sessionId),[grades,sessionId]);
