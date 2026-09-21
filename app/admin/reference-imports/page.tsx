@@ -4,38 +4,156 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 
 type PreviewRow = Record<string, string>;
+type EnrollmentPreview = {
+  session: { id: string; name: string };
+  totalSourceRows: number;
+  eligibleRows: number;
+  readyToImport: number;
+  alreadyImported: number;
+  missingOrInvalidRows: number;
+  unmatchedClasses: string[];
+  readyGrNumbers: string[];
+  sample: Array<{ rowNumber: number; grNumber: string; studentName: string; guardianName: string; className: string; gradeName: string | null; shift: string }>;
+};
+
 const targets = {
   enrollment: ["GR","Family no.","Ethnic","Name","Father Name","Cnic","Mother Name","Cnic.1","D.O.B","G","Housing","Income","Father profession","mother Profession","Cell no.","Cell no..1","D.O.A","Class","Shift","Status","current Class","Result","Status.1","TRX no.","mode","date","Amount Dispursed"],
   staff: ["Employee Name","Father / Husband Name","Gender","DOB","Employee CNIC","Email","Date of Appointment","Designation","Academic Qualification","Professional Qualification","Training / Courses","Monthly Salary","Contact No","Emergency Cont No","Status"],
 };
 
 function parseDelimited(text: string): PreviewRow[] {
-  const lines=text.split(/\r?\n/).filter(line=>line.trim());
-  if(!lines.length)return[];
-  const separator=lines[0].includes("\t")?"\t":",";
-  const headers=lines[0].split(separator).map(x=>x.trim());
-  return lines.slice(1,51).map(line=>{const values=line.split(separator);return Object.fromEntries(headers.map((header,i)=>[header,(values[i]||"").trim()]));});
+  const lines = text.split(/\r?\n/).filter(line => line.trim());
+  if (!lines.length) return [];
+  const separator = lines[0].includes("\t") ? "\t" : ",";
+  const headers = lines[0].split(separator).map(x => x.trim());
+  return lines.slice(1, 51).map(line => {
+    const values = line.split(separator);
+    return Object.fromEntries(headers.map((header, i) => [header, (values[i] || "").trim()]));
+  });
 }
 
-export default function ReferenceImportsPage(){
-  const[source,setSource]=useState<"enrollment"|"staff">("enrollment"),[text,setText]=useState(""),[message,setMessage]=useState("");
-  const rows=useMemo(()=>parseDelimited(text),[text]),columns=targets[source];
-  async function validate(){
-    setMessage("");
-    const response=await fetch("/api/admin/reference-imports",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({source,rows})});
-    const data=await response.json();
-    setMessage(response.ok?`Validation complete: ${data.validRows} valid row(s), ${data.invalidRows} invalid row(s). No records were written.`:data.error||"Validation failed.");
+export default function ReferenceImportsPage() {
+  const [source, setSource] = useState<"enrollment" | "staff">("enrollment");
+  const [text, setText] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<EnrollmentPreview | null>(null);
+  const [message, setMessage] = useState("");
+  const [working, setWorking] = useState(false);
+  const rows = useMemo(() => parseDelimited(text), [text]);
+  const columns = targets[source];
+
+  async function previewWorkbook() {
+    if (!file) return;
+    setWorking(true); setMessage(""); setPreview(null);
+    const form = new FormData();
+    form.append("source", "enrollment"); form.append("mode", "preview"); form.append("file", file);
+    const response = await fetch("/api/admin/reference-imports", { method: "POST", body: form });
+    const data = await response.json();
+    setWorking(false);
+    if (!response.ok) { setMessage(data.error || "Workbook preview failed."); return; }
+    setPreview(data);
+    setMessage(\`Preview ready: \${data.readyToImport} row(s) are eligible for import.\`);
   }
+
+  async function importWorkbook() {
+    if (!file || !preview?.readyGrNumbers.length) return;
+    setWorking(true); setMessage("");
+    let imported = 0;
+    for (let index = 0; index < preview.readyGrNumbers.length; index += 50) {
+      const batch = preview.readyGrNumbers.slice(index, index + 50);
+      const form = new FormData();
+      form.append("source", "enrollment"); form.append("mode", "import"); form.append("file", file);
+      form.append("grNumbers", JSON.stringify(batch));
+      const response = await fetch("/api/admin/reference-imports", { method: "POST", body: form });
+      const data = await response.json();
+      if (!response.ok) { setMessage(data.error || "Import failed."); setWorking(false); return; }
+      imported += data.imported || 0;
+      setMessage(\`Importing 2026–2027 enrollment: \${imported} / \${preview.readyGrNumbers.length}\`);
+    }
+    setWorking(false);
+    setMessage(\`Import complete: \${imported} enrollment record(s) created. Existing records were left unchanged.\`);
+    setPreview(null);
+  }
+
+  async function validateDelimited() {
+    setMessage("");
+    const response = await fetch("/api/admin/reference-imports", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source, rows }),
+    });
+    const data = await response.json();
+    setMessage(response.ok ? \`Validation complete: \${data.validRows} valid row(s), \${data.invalidRows} invalid row(s). No records were written.\` : data.error || "Validation failed.");
+  }
+
   return <main className="container">
-    <header className="admissions-header"><div><div className="eyebrow">Aghaaz / Data / Reference Imports</div><h1>Reference Import Center</h1><p>Stage historical Excel data before any production import. This pass validates CSV/TSV exports and never writes records.</p></div><Link className="button secondary" href="/students">Students</Link></header>
-    <section className="card"><div className="form-grid">
-      <label>Reference file<select className="input" value={source} onChange={e=>{setSource(e.target.value as "enrollment"|"staff");setText("");setMessage("")}}><option value="enrollment">Session 2026–2027 enrollment / G.R.</option><option value="staff">Teaching Employees Record</option></select></label>
-      <label className="full">Paste CSV or tab-separated export<textarea className="input textarea" rows={10} value={text} onChange={e=>setText(e.target.value)} placeholder="Export the worksheet to CSV/TSV, then paste it here."/></label>
-    </div>
-    <div className="panel" style={{marginTop:16}}><h2>Expected source columns</h2><div className="chip-row">{columns.map(column=><span className="status-pill" key={column}>{column}</span>)}</div></div>
-    <div className="table-wrap" style={{marginTop:16}}><table><thead><tr>{rows[0]?Object.keys(rows[0]).map(column=><th key={column}>{column}</th>):<th>Preview</th>}</tr></thead><tbody>{rows.length?rows.slice(0,10).map((row,index)=><tr key={index}>{Object.values(row).map((value,cell)=><td key={cell}>{value||"—"}</td>)}</tr>):<tr><td>Paste data to preview the first 50 rows.</td></tr>}</tbody></table></div>
-    {message&&<div className="status-card" style={{marginTop:16}}>{message}</div>}
-    <div className="form-actions" style={{marginTop:16}}><button className="button" type="button" onClick={()=>void validate()} disabled={!rows.length}>Validate staged data</button></div>
+    <header className="admissions-header">
+      <div>
+        <div className="eyebrow">Aghaaz / Data / Reference Imports</div>
+        <h1>Reference Import Center</h1>
+        <p>Historical source data is staged first, checked for duplicates, and only then imported into the academic data model.</p>
+      </div>
+      <Link className="button secondary" href="/students">Students</Link>
+    </header>
+
+    <section className="card">
+      <div className="form-grid">
+        <label>Reference source
+          <select className="input" value={source} onChange={e => { setSource(e.target.value as "enrollment" | "staff"); setText(""); setFile(null); setPreview(null); setMessage(""); }}>
+            <option value="enrollment">Session 2026–2027 enrollment / G.R.</option>
+            <option value="staff">Teaching Employees Record</option>
+          </select>
+        </label>
+
+        {source === "enrollment" ? <label>Excel workbook (.xlsx)
+          <input className="input" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={e => { setFile(e.target.files?.[0] || null); setPreview(null); setMessage(""); }} />
+        </label> : null}
+
+        {source === "staff" ? <label className="full">Paste CSV or tab-separated export
+          <textarea className="input textarea" rows={10} value={text} onChange={e => setText(e.target.value)} placeholder="Export the worksheet to CSV/TSV, then paste it here." />
+        </label> : null}
+      </div>
+
+      {source === "enrollment" && <div className="panel" style={{ marginTop: 16 }}>
+        <strong>Import behavior</strong>
+        <p style={{ marginBottom: 0 }}>Reads only the <b>G.R</b> worksheet and only rows whose Status is <b>enrolled</b>. The original row is preserved in the student's form data. GR Number becomes the Student Registry identifier; the source Shift is preserved separately and is not treated as a section.</p>
+      </div>}
+
+      <div className="panel" style={{ marginTop: 16 }}>
+        <h2>Expected source columns</h2>
+        <div className="chip-row">{columns.map(column => <span className="status-pill" key={column}>{column}</span>)}</div>
+      </div>
+
+      {source === "enrollment" && <div className="form-actions" style={{ marginTop: 16 }}>
+        <button className="button" type="button" onClick={() => void previewWorkbook()} disabled={!file || working}>Preview workbook</button>
+        {preview && <button className="button secondary" type="button" onClick={() => void importWorkbook()} disabled={working || !preview.readyGrNumbers.length}>Import {preview.readyToImport} eligible records</button>}
+      </div>}
+
+      {source === "staff" && <div className="table-wrap" style={{ marginTop: 16 }}>
+        <table><thead><tr>{rows[0] ? Object.keys(rows[0]).map(column => <th key={column}>{column}</th>) : <th>Preview</th>}</tr></thead>
+          <tbody>{rows.length ? rows.slice(0, 10).map((row, index) => <tr key={index}>{Object.values(row).map((value, cell) => <td key={cell}>{value || "—"}</td>)}</tr>) : <tr><td>Paste data to preview the first 50 rows.</td></tr>}</tbody>
+        </table>
+      </div>}
+
+      {preview && <div className="module-grid" style={{ marginTop: 18 }}>
+        <div className="module-card"><h3>Source rows</h3><strong>{preview.totalSourceRows}</strong><span>Rows with Status = enrolled</span></div>
+        <div className="module-card"><h3>Eligible</h3><strong>{preview.eligibleRows}</strong><span>Valid GR/name/guardian rows</span></div>
+        <div className="module-card"><h3>Ready</h3><strong>{preview.readyToImport}</strong><span>Not already in Student Registry</span></div>
+        <div className="module-card"><h3>Existing</h3><strong>{preview.alreadyImported}</strong><span>Left unchanged</span></div>
+      </div>}
+
+      {preview?.unmatchedClasses.length ? <div className="status-card" style={{ marginTop: 16 }}>Classes without an exact configured academic grade mapping: {preview.unmatchedClasses.join(", ")}. Those students can still be imported; their original class name is preserved and the academic grade link remains empty for later placement.</div> : null}
+
+      {preview && <div className="table-wrap" style={{ marginTop: 16 }}>
+        <table><thead><tr><th>Source row</th><th>GR</th><th>Student</th><th>Father</th><th>Class</th><th>Academic grade</th><th>Shift</th></tr></thead>
+          <tbody>{preview.sample.map(row => <tr key={row.grNumber}><td>{row.rowNumber}</td><td>{row.grNumber}</td><td>{row.studentName}</td><td>{row.guardianName}</td><td>{row.className}</td><td>{row.gradeName || "Unmapped"}</td><td>{row.shift || "—"}</td></tr>)}</tbody>
+        </table>
+      </div>}
+
+      {source === "staff" && <div className="form-actions" style={{ marginTop: 16 }}>
+        <button className="button" type="button" onClick={() => void validateDelimited()} disabled={!rows.length}>Validate staged data</button>
+      </div>}
+
+      {message && <div className="status-card" style={{ marginTop: 16 }}>{message}</div>}
     </section>
   </main>;
 }
