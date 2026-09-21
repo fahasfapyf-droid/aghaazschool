@@ -9,11 +9,29 @@ import { requestAuditContext, writeAuditLog } from "@/lib/audit";
 export const runtime = "nodejs";
 
 const roles = ["SUPER_ADMIN", "ADMIN"] as const;
-const bodySchema = z.object({ source: z.enum(["enrollment", "staff"]), rows: z.array(z.record(z.string(), z.string())).max(5000) });
+const bodySchema = z.object({
+  source: z.enum(["enrollment", "staff"]),
+  rows: z.array(z.record(z.string(), z.string())).max(5000),
+});
 const clean = (value: string | undefined) => (value || "").trim();
 const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "");
 const SOURCE_SHEET = "G.R";
-const SESSION_NAME = "2026-2027";
+
+type PreparedEnrollmentRow = {
+  rowNumber: number;
+  grNumber: string;
+  studentName: string;
+  guardianName: string;
+  guardianPhone: string;
+  dateOfBirth: string | null;
+  gender: "MALE" | "FEMALE" | null;
+  className: string;
+  shift: string;
+  gradeId: string | null;
+  gradeName: string | null;
+  valid: boolean;
+  source: Record<string, unknown>;
+};
 
 function excelDate(value: unknown) {
   if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
@@ -23,16 +41,77 @@ function excelDate(value: unknown) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-function parseEnrollmentWorkbook(buffer: ArrayBuffer) {
-  const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
-  const sheet = workbook.Sheets[SOURCE_SHEET];
-  if (!sheet) throw new Error(`The workbook must contain a "${SOURCE_SHEET}" sheet.`);
-  return XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: null, raw: true }).map((row, index) => ({ ...row, __rowNumber: index + 2 }));
+function extractSessionCandidates(text: string) {
+  const matches = [...text.matchAll(/(20\d{2})\s*[-–—\/]\s*(20\d{2})/g)]
+    .map(match => `${match[1]}-${match[2]}`);
+  return [...new Set(matches)];
 }
 
-async function getEnrollmentContext() {
-  const session = await prisma.academicSession.findUnique({ where: { name: SESSION_NAME } });
-  if (!session) throw new Error(`Academic session ${SESSION_NAME} is not configured.`);
+function detectSessionName(fileName: string, workbook: XLSX.WorkBook) {
+  const candidates = new Set<string>(extractSessionCandidates(fileName));
+  for (const value of Object.values(workbook.Props || {})) {
+    if (typeof value === "string") {
+      for (const candidate of extractSessionCandidates(value)) candidates.add(candidate);
+    }
+  }
+  for (const sheetName of workbook.SheetNames) {
+    for (const candidate of extractSessionCandidates(sheetName)) candidates.add(candidate);
+  }
+  for (const sheetName of workbook.SheetNames.slice(0, 8)) {
+    const sheet = workbook.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: null, raw: false }).slice(0, 20);
+    for (const row of rows) {
+      for (const value of row) {
+        if (typeof value !== "string") continue;
+        for (const candidate of extractSessionCandidates(value)) candidates.add(candidate);
+      }
+    }
+  }
+  if (candidates.size !== 1) {
+    throw new Error(
+      candidates.size > 1
+        ? `Multiple academic sessions were detected (${[...candidates].join(", ")}). Upload one session per workbook.`
+        : "Academic session could not be detected. Include the session in the workbook filename, sheet name, workbook metadata, or the first rows (for example 2018-2019)."
+    );
+  }
+  return [...candidates][0];
+}
+
+function sessionDates(name: string) {
+  const match = name.match(/^(20\d{2})-(20\d{2})$/);
+  if (!match) throw new Error("Detected academic session has an invalid format.");
+  const startYear = Number(match[1]);
+  const endYear = Number(match[2]);
+  if (endYear !== startYear + 1) throw new Error("Academic session must span consecutive years.");
+  return {
+    startDate: new Date(`${startYear}-09-01T00:00:00.000Z`),
+    endDate: new Date(`${endYear}-08-31T23:59:59.999Z`),
+  };
+}
+
+async function getOrCreateSession(sessionName: string) {
+  const existing = await prisma.academicSession.findUnique({ where: { name: sessionName } });
+  if (existing) return existing;
+  const dates = sessionDates(sessionName);
+  return prisma.academicSession.create({
+    data: { name: sessionName, startDate: dates.startDate, endDate: dates.endDate },
+  });
+}
+
+function parseEnrollmentWorkbook(buffer: ArrayBuffer, fileName: string) {
+  const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+  const sessionName = detectSessionName(fileName, workbook);
+  const sheet = workbook.Sheets[SOURCE_SHEET];
+  if (!sheet) throw new Error(`The workbook must contain a "${SOURCE_SHEET}" sheet.`);
+  return {
+    sessionName,
+    rows: XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: null, raw: true })
+      .map((row, index) => ({ ...row, __rowNumber: index + 2 })),
+  };
+}
+
+async function getEnrollmentContext(sessionName: string) {
+  const session = await getOrCreateSession(sessionName);
   const grades = await prisma.academicGrade.findMany({
     where: { sessionId: session.id },
     select: { id: true, name: true, code: true, active: true },
@@ -41,7 +120,10 @@ async function getEnrollmentContext() {
   return { session, grades };
 }
 
-function prepareEnrollmentRows(rows: Record<string, unknown>[], grades: { id: string; name: string; code: string; active: boolean }[]) {
+function prepareEnrollmentRows(
+  rows: Record<string, unknown>[],
+  grades: { id: string; name: string; code: string; active: boolean }[],
+): PreparedEnrollmentRow[] {
   const enrolled = rows.filter(row => String(row.Status ?? "").trim().toLowerCase() === "enrolled");
   const seen = new Set<string>();
   return enrolled.map(row => {
@@ -71,6 +153,49 @@ function prepareEnrollmentRows(rows: Record<string, unknown>[], grades: { id: st
   });
 }
 
+async function existingRegistryBySession(sessionId: string, grNumbers: string[]) {
+  if (!grNumbers.length) return [];
+  return prisma.$queryRawUnsafe<{ grNumber: string }[]>(
+    `SELECT sr."grNumber"
+     FROM "StudentRegistry" sr
+     JOIN "Enrollment" e ON e."id"=sr."enrollmentId"
+     WHERE e."academicSessionId"=$1 AND sr."grNumber" = ANY($2::text[])`,
+    sessionId,
+    grNumbers,
+  );
+}
+
+async function findIdentity(tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0], row: PreparedEnrollmentRow) {
+  const byGr = await tx.$queryRawUnsafe<{ studentIdentityId: string }[]>(
+    `SELECT e."studentIdentityId"
+     FROM "StudentRegistry" sr
+     JOIN "Enrollment" e ON e."id"=sr."enrollmentId"
+     WHERE sr."grNumber"=$1
+     ORDER BY e."enrolledAt" DESC
+     LIMIT 1`,
+    row.grNumber,
+  );
+  if (byGr[0]?.studentIdentityId) return { id: byGr[0].studentIdentityId, source: "GR" as const };
+
+  const byIdentity = await tx.$queryRawUnsafe<{ studentIdentityId: string }[]>(
+    `SELECT DISTINCT e."studentIdentityId"
+     FROM "Enrollment" e
+     JOIN "Application" a ON a."id"=e."applicationId"
+     WHERE lower(trim(a."studentName"))=lower(trim($1))
+       AND trim(a."guardianPhone")=trim($2)
+       AND a."dateOfBirth" IS NOT DISTINCT FROM $3::timestamp
+     LIMIT 3`,
+    row.studentName,
+    row.guardianPhone,
+    row.dateOfBirth ? new Date(row.dateOfBirth) : null,
+  );
+  if (byIdentity.length > 1) throw new Error(`AMBIGUOUS_STUDENT_IDENTITY:${row.rowNumber}`);
+  if (byIdentity[0]?.studentIdentityId) return { id: byIdentity[0].studentIdentityId, source: "MATCH" as const };
+
+  const identity = await tx.studentIdentity.create({ data: {} });
+  return { id: identity.id, source: "NEW" as const };
+}
+
 async function authorize(request: NextRequest) {
   const user = await getCurrentUser();
   if (!user) throw new Error("AUTHENTICATION_REQUIRED");
@@ -89,30 +214,38 @@ export async function POST(request: NextRequest) {
       const mode = clean(String(form.get("mode") || "preview"));
       const source = clean(String(form.get("source") || "enrollment"));
       if (source !== "enrollment") return NextResponse.json({ error: "Excel import currently supports the enrollment workbook." }, { status: 400 });
-      if (!(file instanceof File)) return NextResponse.json({ error: "Upload the 2026-2027 enrollment workbook." }, { status: 400 });
+      if (!(file instanceof File)) return NextResponse.json({ error: "Upload an enrollment workbook." }, { status: 400 });
       if (!file.name.toLowerCase().endsWith(".xlsx")) return NextResponse.json({ error: "Only .xlsx workbooks are supported." }, { status: 400 });
       if (file.size > 10 * 1024 * 1024) return NextResponse.json({ error: "Workbook is too large." }, { status: 400 });
 
-      const { session, grades } = await getEnrollmentContext();
-      const prepared = prepareEnrollmentRows(parseEnrollmentWorkbook(await file.arrayBuffer()), grades);
+      const parsedWorkbook = parseEnrollmentWorkbook(await file.arrayBuffer(), file.name);
+      const { session, grades } = await getEnrollmentContext(parsedWorkbook.sessionName);
+      const prepared = prepareEnrollmentRows(parsedWorkbook.rows, grades);
       const valid = prepared.filter(row => row.valid);
-      const existing = valid.length ? await prisma.$queryRawUnsafe<{ grNumber: string }[]>(
-        `SELECT "grNumber" FROM "StudentRegistry" WHERE "grNumber" = ANY($1::text[])`,
-        valid.map(row => row.grNumber),
-      ) : [];
+      const existing = await existingRegistryBySession(session.id, valid.map(row => row.grNumber));
       const existingSet = new Set(existing.map(row => row.grNumber));
       const ready = valid.filter(row => !existingSet.has(row.grNumber));
 
       if (mode === "preview") {
         return NextResponse.json({
-          source, sourceSheet: SOURCE_SHEET, session: { id: session.id, name: session.name },
-          totalSourceRows: prepared.length, eligibleRows: valid.length, readyToImport: ready.length,
-          alreadyImported: existing.length, missingOrInvalidRows: prepared.length - valid.length,
+          source,
+          sourceSheet: SOURCE_SHEET,
+          session: { id: session.id, name: session.name },
+          totalSourceRows: prepared.length,
+          eligibleRows: valid.length,
+          readyToImport: ready.length,
+          alreadyImported: existing.length,
+          missingOrInvalidRows: prepared.length - valid.length,
           unmatchedClasses: [...new Set(ready.filter(row => !row.gradeId).map(row => row.className))],
           readyGrNumbers: ready.map(row => row.grNumber),
           sample: ready.slice(0, 25).map(row => ({
-            rowNumber: row.rowNumber, grNumber: row.grNumber, studentName: row.studentName,
-            guardianName: row.guardianName, className: row.className, gradeName: row.gradeName, shift: row.shift,
+            rowNumber: row.rowNumber,
+            grNumber: row.grNumber,
+            studentName: row.studentName,
+            guardianName: row.guardianName,
+            className: row.className,
+            gradeName: row.gradeName,
+            shift: row.shift,
           })),
         });
       }
@@ -124,53 +257,105 @@ export async function POST(request: NextRequest) {
       if (!candidates.length) return NextResponse.json({ imported: 0, skipped: requested.size, remaining: 0 });
 
       const context = requestAuditContext(request);
-      await prisma.$transaction(async tx => {
-        for (const row of candidates) {
-          const application = await tx.application.create({
-            data: {
-              id: randomUUID(),
-              applicationNumber: `HIST-2627-${row.grNumber}`,
-              sessionId: session.id,
-              desiredClass: row.className,
-              studentName: row.studentName,
-              dateOfBirth: row.dateOfBirth ? new Date(row.dateOfBirth) : null,
-              gender: row.gender as "MALE" | "FEMALE" | undefined,
-              guardianName: row.guardianName,
-              guardianPhone: row.guardianPhone,
-              remarks: "Imported from Session 2026-2027 enrollements.xlsx",
-              formData: JSON.parse(JSON.stringify({ source: "2026-2027 enrollment workbook", sheet: SOURCE_SHEET, rowNumber: row.rowNumber, shift: row.shift, legacy: row.source })),
-              status: "ENROLLED",
-            },
-          });
-          const enrollment = await tx.enrollment.create({
-            data: {
-              id: randomUUID(), applicationId: application.id, studentId: application.id,
-              admissionNumber: `LEGACY-${row.grNumber}`, className: row.className, section: null,
-              academicSessionId: session.id, academicGradeId: row.gradeId, academicSectionId: null,
-              enrolledAt: new Date(), status: "ACTIVE",
-            },
-          });
-          await tx.$executeRaw`INSERT INTO "StudentRegistry" ("id","enrollmentId","grNumber") VALUES (${randomUUID()},${enrollment.id},${row.grNumber})`;
-          await tx.enrollmentHistory.create({
-            data: {
-              enrollmentId: enrollment.id, action: "IMPORTED_REFERENCE_DATA",
-              academicSessionId: session.id, academicSessionName: session.name,
-              academicGradeId: row.gradeId, academicGradeName: row.gradeName || row.className,
-              className: row.className, section: null, status: "ACTIVE",
-              note: `Imported from ${SOURCE_SHEET} row ${row.rowNumber}; shift: ${row.shift || "not recorded"}`,
-              createdBy: user.id,
-            },
-          });
-        }
-      });
+      let imported = 0;
+      try {
+        await prisma.$transaction(async tx => {
+          for (const row of candidates) {
+            const identity = await findIdentity(tx, row);
+            const numbers = await tx.$queryRawUnsafe<{ applicationNumber: string; admissionNumber: string }[]>(
+              `SELECT 'REG-' || LPAD(nextval('"application_number_seq"')::text, 5, '0') AS "applicationNumber",
+                      'ADM-' || LPAD(nextval('"admission_number_seq"')::text, 5, '0') AS "admissionNumber"`
+            );
+            const numberSet = numbers[0];
+            if (!numberSet) throw new Error("NUMBER_ALLOCATION_FAILED");
 
-      const remaining = ready.length - candidates.length;
+            const application = await tx.application.create({
+              data: {
+                applicationNumber: numberSet.applicationNumber,
+                sessionId: session.id,
+                desiredClass: row.className,
+                studentName: row.studentName,
+                dateOfBirth: row.dateOfBirth ? new Date(row.dateOfBirth) : null,
+                gender: row.gender as "MALE" | "FEMALE" | undefined,
+                guardianName: row.guardianName,
+                guardianPhone: row.guardianPhone,
+                remarks: `Imported reference data from ${file.name}; source session ${session.name}`,
+                formData: JSON.parse(JSON.stringify({
+                  source: file.name,
+                  sheet: SOURCE_SHEET,
+                  rowNumber: row.rowNumber,
+                  shift: row.shift,
+                  legacy: row.source,
+                })),
+                status: "ENROLLED",
+              },
+            });
+
+            const enrollment = await tx.enrollment.create({
+              data: {
+                applicationId: application.id,
+                studentId: `STU-${randomUUID().slice(0, 8).toUpperCase()}`,
+                studentIdentityId: identity.id,
+                admissionNumber: numberSet.admissionNumber,
+                className: row.className,
+                section: null,
+                academicSessionId: session.id,
+                academicGradeId: row.gradeId,
+                academicSectionId: null,
+                enrolledAt: new Date(),
+                status: "ACTIVE",
+              },
+            });
+
+            await tx.$executeRaw`INSERT INTO "StudentRegistry" ("id","enrollmentId","grNumber") VALUES (${randomUUID()},${enrollment.id},${row.grNumber})`;
+
+            await tx.enrollmentHistory.create({
+              data: {
+                enrollmentId: enrollment.id,
+                action: "IMPORTED_REFERENCE_DATA",
+                academicSessionId: session.id,
+                academicSessionName: session.name,
+                academicGradeId: row.gradeId,
+                academicGradeName: row.gradeName || row.className,
+                className: row.className,
+                section: null,
+                status: "ACTIVE",
+                note: `Imported from ${file.name}, ${SOURCE_SHEET} row ${row.rowNumber}; shift: ${row.shift || "not recorded"}`,
+                createdBy: user.id,
+              },
+            });
+            imported += 1;
+          }
+        });
+      } catch (error) {
+        if (error instanceof Error && error.message.startsWith("AMBIGUOUS_STUDENT_IDENTITY:")) {
+          return NextResponse.json({
+            error: `Student identity is ambiguous for source row ${error.message.split(":")[1]}. The row was not imported; resolve the matching student before retrying.`,
+          }, { status: 409 });
+        }
+        throw error;
+      }
+
+      const remaining = ready.length - imported;
       await writeAuditLog({
-        userId: user.id, action: "HISTORICAL_ENROLLMENT_IMPORT", entityType: "AcademicSession", entityId: session.id,
-        metadata: { sessionName: session.name, sourceSheet: SOURCE_SHEET, imported: candidates.length, remaining },
+        userId: user.id,
+        action: "HISTORICAL_ENROLLMENT_IMPORT",
+        entityType: "AcademicSession",
+        entityId: session.id,
+        metadata: {
+          sessionName: session.name,
+          sourceFile: file.name,
+          sourceSheet: SOURCE_SHEET,
+          imported,
+          remaining,
+        },
         context,
       });
-      return NextResponse.json({ imported: candidates.length, remaining, session: { id: session.id, name: session.name } });
+      return NextResponse.json({
+        imported,
+        remaining,
+        session: { id: session.id, name: session.name },
+      });
     }
 
     const parsed = bodySchema.safeParse(await request.json().catch(() => null));
@@ -194,7 +379,15 @@ export async function POST(request: NextRequest) {
     }
 
     const invalidRows = new Set(errors.map(item => item.row)).size;
-    return NextResponse.json({ source, totalRows: rows.length, validRows: rows.length - invalidRows, invalidRows, errors: errors.slice(0, 100), written: false, message: "Validation only. No production records were created or modified." });
+    return NextResponse.json({
+      source,
+      totalRows: rows.length,
+      validRows: rows.length - invalidRows,
+      invalidRows,
+      errors: errors.slice(0, 100),
+      written: false,
+      message: "Validation only. No production records were created or modified.",
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to process reference import.";
     if (message === "AUTHENTICATION_REQUIRED") return NextResponse.json({ error: "Authentication required." }, { status: 401 });
