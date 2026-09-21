@@ -13,8 +13,18 @@ type Report = {
   attendance: { total: number; present: number; absent: number; leave: number; percentage: number };
 };
 
-const gradeLabel = (grade: string | null) =>
-  ({ A_PLUS: "A+", A: "A", B_PLUS: "B+", B: "B", C: "C", D: "D", TRY_AGAIN: "E" }[grade || ""] || "—");
+const gradeLabel = (grade: string | null) => {
+  const labels: Record<string, string> = {
+    A_PLUS: "A+",
+    A: "A",
+    B_PLUS: "B+",
+    B: "B",
+    C: "C",
+    D: "D",
+    TRY_AGAIN: "E",
+  };
+  return labels[grade || ""] || "—";
+};
 
 export default function ReportCards() {
   const [students, setStudents] = useState<Student[]>([]);
