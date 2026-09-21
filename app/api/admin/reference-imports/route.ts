@@ -32,7 +32,10 @@ type PreparedEnrollmentRow = {
   gradeId: string | null;
   gradeName: string | null;
   gradeCode: string | null;
+  enrollmentStatus: "ENROLLED" | "LEFT" | "EXPELLED";
+  statusSource: string;
   valid: boolean;
+  validationErrors: string[];
   source: Record<string, unknown>;
 };
 
@@ -110,10 +113,87 @@ function resolveGrade(className: string) {
 
 function excelDate(value: unknown) {
   if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const parsed = XLSX.SSF.parse_date_code(value);
+    if (parsed?.y && parsed?.m && parsed?.d) {
+      return new Date(Date.UTC(parsed.y, parsed.m - 1, parsed.d, parsed.H || 0, parsed.M || 0, parsed.S || 0));
+    }
+  }
   const text = String(value ?? "").trim();
-  if (!text || text === "-" || text === "N/A") return null;
+  if (!text || ["-", "N/A", "NA", "NULL"].includes(text.toUpperCase())) return null;
+
+  const dmy = text.match(/^(\\d{1,2})[\\/.-](\\d{1,2})[\\/.-](\\d{4})$/);
+  if (dmy) {
+    const day = Number(dmy[1]);
+    const month = Number(dmy[2]);
+    const year = Number(dmy[3]);
+    const candidate = new Date(Date.UTC(year, month - 1, day));
+    if (candidate.getUTCFullYear() === year && candidate.getUTCMonth() === month - 1 && candidate.getUTCDate() === day) return candidate;
+    return null;
+  }
+
+  const ymd = text.match(/^(\\d{4})[\\/.-](\\d{1,2})[\\/.-](\\d{1,2})$/);
+  if (ymd) {
+    const year = Number(ymd[1]);
+    const month = Number(ymd[2]);
+    const day = Number(ymd[3]);
+    const candidate = new Date(Date.UTC(year, month - 1, day));
+    if (candidate.getUTCFullYear() === year && candidate.getUTCMonth() === month - 1 && candidate.getUTCDate() === day) return candidate;
+    return null;
+  }
+
   const parsed = new Date(text);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+const HEADER_ALIASES: Record<string, string[]> = {
+  gr: ["gr", "grnumber", "grno", "generalregister", "generalregisternumber", "registrationnumber"],
+  name: ["name", "studentname", "nameofstudent", "student"],
+  guardianName: ["fathername", "fathersname", "father", "guardianname", "parentname", "guardian"],
+  guardianPhone: ["cellno", "cellnumber", "cell", "mobile", "mobilenumber", "phone", "phonenumber", "guardianphone", "contactno"],
+  dateOfBirth: ["dob", "dateofbirth", "birthdate", "dateofbirthstudent"],
+  gender: ["g", "gender", "sex"],
+  className: ["class", "classname", "grade", "currentclass", "currentgrade"],
+  originalClassName: ["originalclass", "previousclass", "classatentry"],
+  shift: ["shift", "timing"],
+  status: ["status", "enrollmentstatus", "studentstatus", "currentstatus"],
+};
+
+function canonicalHeader(value: unknown) {
+  return normalize(String(value ?? ""));
+}
+
+function canonicalizeEnrollmentRows(rows: Record<string, unknown>[]) {
+  return rows.map(row => {
+    const byCanonical: Record<string, unknown> = {};
+    for (const [header, value] of Object.entries(row)) {
+      if (header.startsWith("__")) continue;
+      const key = canonicalHeader(header);
+      if (!key) continue;
+      for (const [canonical, aliases] of Object.entries(HEADER_ALIASES)) {
+        if (aliases.includes(key)) {
+          const existing = byCanonical[canonical];
+          if (existing === undefined || String(existing ?? "").trim() === "") byCanonical[canonical] = value;
+          break;
+        }
+      }
+    }
+    return { ...row, ...byCanonical };
+  });
+}
+
+function normalizeEnrollmentStatus(value: unknown) {
+  const raw = String(value ?? "").trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\\s+/g, " ");
+  if (["enrolled", "enrol", "active", "current", "currently enrolled", "admitted"].includes(raw)) {
+    return { status: "ENROLLED" as const, source: raw };
+  }
+  if (["left", "leaving", "withdrawn", "withdraw", "transferred", "transfer", "inactive", "left school"].includes(raw)) {
+    return { status: "LEFT" as const, source: raw };
+  }
+  if (["expelled", "expel", "dismissed", "removed"].includes(raw)) {
+    return { status: "EXPELLED" as const, source: raw };
+  }
+  return { status: null, source: raw };
 }
 
 function extractSessionCandidates(text: string) {
@@ -168,15 +248,20 @@ async function findSession(sessionName: string) {
   return prisma.academicSession.findUnique({ where: { name: sessionName } });
 }
 
-function parseEnrollmentWorkbook(buffer: ArrayBuffer, fileName: string) {
+function parseEnrollmentWorkbook(buffer: ArrayBuffer, fileName: string): { sessionName: string; sourceSheet: string; rows: Record<string, unknown>[] } {
   const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
   const sessionName = detectSessionName(fileName, workbook);
-  const sheet = workbook.Sheets[SOURCE_SHEET];
-  if (!sheet) throw new Error(`The workbook must contain a "${SOURCE_SHEET}" sheet.`);
+  const preferredSheet = workbook.SheetNames.find(name => canonicalHeader(name) === canonicalHeader(SOURCE_SHEET));
+  const generalRegisterSheet = workbook.SheetNames.find(name => ["gr", "generalregister", "generalregistersheet"].includes(canonicalHeader(name)));
+  const sheetName = preferredSheet || generalRegisterSheet || (workbook.SheetNames.length === 1 ? workbook.SheetNames[0] : null);
+  if (!sheetName) throw new Error(`The workbook must contain a G.R / General Register sheet. Available sheets: ${workbook.SheetNames.join(", ")}`);
+  const sheet = workbook.Sheets[sheetName];
+  const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: null, raw: true })
+    .map((row, index) => ({ ...row, __rowNumber: index + 2 }));
   return {
     sessionName,
-    rows: XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: null, raw: true })
-      .map((row, index) => ({ ...row, __rowNumber: index + 2 })),
+    sourceSheet: sheetName,
+    rows: canonicalizeEnrollmentRows(rawRows),
   };
 }
 
@@ -194,14 +279,23 @@ function prepareEnrollmentRows(
   rows: Record<string, unknown>[],
   grades: { id: string; name: string; code: string; active: boolean }[],
 ): PreparedEnrollmentRow[] {
-  const enrolled = rows.filter(row => String(row.Status ?? "").trim().toLowerCase() === "enrolled");
   const seen = new Set<string>();
-  return enrolled.map(row => {
-    const grNumber = String(row.GR ?? "").trim();
-    const duplicate = !grNumber || seen.has(grNumber);
+  return rows.map(row => {
+    const grNumber = String(row.gr ?? "").trim();
+    const studentName = String(row.name ?? "").trim();
+    const guardianName = String(row.guardianName ?? "").trim();
+    const statusResult = normalizeEnrollmentStatus(row.status);
+    const validationErrors: string[] = [];
+    if (!grNumber) validationErrors.push("GR is missing.");
+    if (!studentName) validationErrors.push("Student name is missing.");
+    if (!statusResult.status) validationErrors.push(`Unrecognized enrollment status: "${String(row.status ?? "").trim() || "blank"}".`);
+
+    const duplicate = Boolean(grNumber && seen.has(grNumber));
     if (grNumber) seen.add(grNumber);
-    const originalClassName = String(row.Class ?? "").trim();
-    const currentClassName = String(row["current Class"] ?? "").trim();
+    if (duplicate) validationErrors.push(`Duplicate GR ${grNumber} in this workbook.`);
+
+    const originalClassName = String(row.className ?? "").trim();
+    const currentClassName = String(row.originalClassName ?? "").trim();
     const className = (!originalClassName || normalize(originalClassName) === "newadmission" || normalize(originalClassName) === "unplaced")
       ? (currentClassName || originalClassName || "Unplaced")
       : originalClassName;
@@ -209,23 +303,27 @@ function prepareEnrollmentRows(
     const grade = resolved.gradeCode
       ? grades.find(item => item.active && (item.code === resolved.gradeCode || normalize(item.name) === normalize(resolved.gradeName || ""))) || null
       : null;
-    const dob = excelDate(row["D.O.B"]);
-    const gender = String(row.G ?? "").trim().toLowerCase();
+    const dob = excelDate(row.dateOfBirth);
+    const gender = String(row.gender ?? "").trim().toLowerCase();
+    if (row.dateOfBirth && !dob) validationErrors.push("Date of birth could not be interpreted safely.");
     return {
       rowNumber: Number(row.__rowNumber || 0),
       grNumber,
-      studentName: String(row.Name ?? "").trim(),
-      guardianName: String(row["Father Name"] ?? "").trim(),
-      guardianPhone: String(row["Cell no."] ?? "").trim(),
+      studentName,
+      guardianName,
+      guardianPhone: String(row.guardianPhone ?? "").trim(),
       dateOfBirth: dob?.toISOString() || null,
-      gender: gender === "m" ? "MALE" : gender === "f" ? "FEMALE" : null,
+      gender: gender === "m" || gender === "male" ? "MALE" : gender === "f" || gender === "female" ? "FEMALE" : null,
       className,
       section: resolved.section,
-      shift: String(row.Shift ?? "").trim(),
+      shift: String(row.shift ?? "").trim(),
       gradeId: grade?.id || null,
       gradeName: grade?.name || resolved.gradeName,
       gradeCode: grade?.code || resolved.gradeCode,
-      valid: Boolean(grNumber && String(row.Name ?? "").trim() && String(row["Father Name"] ?? "").trim() && !duplicate),
+      enrollmentStatus: statusResult.status || "LEFT",
+      statusSource: statusResult.source,
+      valid: validationErrors.length === 0,
+      validationErrors,
       source: row,
     };
   });
@@ -300,6 +398,7 @@ export async function POST(request: NextRequest) {
       const { session, grades } = await getEnrollmentContext(parsedWorkbook.sessionName);
       const prepared = prepareEnrollmentRows(parsedWorkbook.rows, grades);
       const valid = prepared.filter(row => row.valid);
+      const reviewRows = prepared.filter(row => !row.valid);
       const existing = session ? await existingRegistryBySession(session.id, valid.map(row => row.grNumber)) : [];
       const existingSet = new Set(existing.map(row => row.grNumber));
       const ready = valid.filter(row => !existingSet.has(row.grNumber));
@@ -307,13 +406,26 @@ export async function POST(request: NextRequest) {
       if (mode === "preview") {
         return NextResponse.json({
           source,
-          sourceSheet: SOURCE_SHEET,
+          sourceSheet: parsedWorkbook.sourceSheet,
           session: { id: session?.id || null, name: parsedWorkbook.sessionName, exists: Boolean(session) },
           totalSourceRows: prepared.length,
           eligibleRows: valid.length,
           readyToImport: ready.length,
           alreadyImported: existing.length,
-          missingOrInvalidRows: prepared.length - valid.length,
+          missingOrInvalidRows: reviewRows.length,
+          statusCounts: {
+            enrolled: prepared.filter(row => row.enrollmentStatus === "ENROLLED").length,
+            left: prepared.filter(row => row.enrollmentStatus === "LEFT").length,
+            expelled: prepared.filter(row => row.enrollmentStatus === "EXPELLED").length,
+            needsReview: reviewRows.length,
+          },
+          reviewRows: reviewRows.slice(0, 100).map(row => ({
+            rowNumber: row.rowNumber,
+            grNumber: row.grNumber,
+            studentName: row.studentName,
+            sourceStatus: row.statusSource,
+            errors: row.validationErrors,
+          })),
           gradeCreationPlan: [...new Map(
             ready
               .filter(row => row.gradeCode && !row.gradeId)
@@ -331,6 +443,7 @@ export async function POST(request: NextRequest) {
             className: row.className,
             gradeName: row.gradeName,
             shift: row.shift,
+            status: row.enrollmentStatus,
           })),
         });
       }
@@ -406,7 +519,7 @@ export async function POST(request: NextRequest) {
                 remarks: `Imported reference data from ${file.name}; source session ${parsedWorkbook.sessionName}`,
                 formData: JSON.parse(JSON.stringify({
                   source: file.name,
-                  sheet: SOURCE_SHEET,
+                  sheet: parsedWorkbook.sourceSheet,
                   rowNumber: row.rowNumber,
                   shift: row.shift,
                   legacy: row.source,
@@ -427,7 +540,7 @@ export async function POST(request: NextRequest) {
                 academicGradeId: row.gradeId,
                 academicSectionId: null,
                 enrolledAt: new Date(),
-                status: "ACTIVE",
+                status: row.enrollmentStatus,
               },
             });
 
@@ -443,8 +556,8 @@ export async function POST(request: NextRequest) {
                 academicGradeName: row.gradeName || row.className,
                 className: row.className,
                 section: row.section,
-                status: "ACTIVE",
-                note: `Imported from ${file.name}, ${SOURCE_SHEET} row ${row.rowNumber}; shift: ${row.shift || "not recorded"}`,
+                status: row.enrollmentStatus,
+                note: `Imported from ${file.name}, ${parsedWorkbook.sourceSheet} row ${row.rowNumber}; source status: ${row.statusSource || "blank"}; shift: ${row.shift || "not recorded"}`,
                 createdBy: user.id,
               },
             });
@@ -472,7 +585,7 @@ export async function POST(request: NextRequest) {
         metadata: {
           sessionName: parsedWorkbook.sessionName,
           sourceFile: file.name,
-          sourceSheet: SOURCE_SHEET,
+          sourceSheet: parsedWorkbook.sourceSheet,
           imported,
           remaining,
         },
