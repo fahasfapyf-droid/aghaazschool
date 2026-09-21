@@ -74,10 +74,12 @@ export async function GET(req: NextRequest) {
 
   const currentSessionId = student.academicSessionId;
   const currentSession = student.academicSession;
-  const [release, gradingBands] = await Promise.all([
+  const [release, gradingBands, registryRows] = await Promise.all([
     findReportCardRelease(studentId, currentSessionId),
     getGradingBands(currentSessionId),
+    prisma.$queryRawUnsafe<{ grNumber: string }[]>(`SELECT "grNumber" FROM "StudentRegistry" WHERE "enrollmentId" = $1 LIMIT 1`, studentId),
   ]);
+  const grNumber = registryRows[0]?.grNumber ?? null;
   if (release) return NextResponse.json({ ...(release.snapshot as Record<string, unknown>), released: true, release: { id: release.id, snapshotHash: release.snapshotHash, releasedBy: release.releasedBy, releasedAt: release.releasedAt } });
 
   const [results, rawConfigurations, attendance] = await Promise.all([
@@ -201,7 +203,7 @@ export async function GET(req: NextRequest) {
   }
 
   return NextResponse.json({
-    student: { id: student.id, name: student.application.studentName, guardianName: student.application.guardianName, guardianPhone: student.application.guardianPhone, admissionNumber: student.admissionNumber, className: student.className, section: student.section, session: currentSession.name },
+    student: { id: student.id, name: student.application.studentName, guardianName: student.application.guardianName, guardianPhone: student.application.guardianPhone, admissionNumber: student.admissionNumber, grNumber, className: student.className, section: student.section, session: currentSession.name },
     terms: termReports,
     final: { totalMarks, obtainedMarks, percentage, grade: annualComplete ? resolveGrade(gradingBands, percentage!) : null, position, complete: annualComplete, enteredSubjects: annualEnteredSubjects, expectedSubjects: annualExpectedSubjects },
     attendance: { ...attendanceSummary, percentage: attendanceSummary.total ? (attendanceSummary.present / attendanceSummary.total) * 100 : 0 },
