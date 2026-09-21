@@ -70,3 +70,24 @@
  .student-details-page .historical-reference-grid,.student-details-page .edit-grid,.student-details-page .edit-grid-reference{grid-template-columns:1fr}
 }
 @media(max-width:520px){.student-details-page .admission-stats{grid-template-columns:1fr}}
+
+/* Student Details: use a record-sheet layout instead of dense value cards */
+.student-details-page{max-width:1180px;padding:38px 34px 72px}
+.student-details-page .applications-card,.student-details-page .panel{border-radius:18px}
+.student-details-page .applications-card{padding:26px 28px}
+.student-details-page .bottom-grid{gap:18px}
+.student-details-page .historical-reference-list{display:grid;grid-template-columns:1fr 1fr;border-top:1px solid #ececf2}
+.student-details-page .historical-reference-row{display:grid;grid-template-columns:minmax(120px,40%) minmax(0,1fr);gap:18px;align-items:start;padding:14px 10px 14px 0;border-bottom:1px solid #ececf2}
+.student-details-page .historical-reference-row:nth-child(odd){border-right:1px solid #ececf2;padding-right:22px}
+.student-details-page .historical-reference-row:nth-child(even){padding-left:22px}
+.student-details-page .historical-reference-row span{font-size:11px;line-height:1.4;color:#777b89;font-weight:700;text-transform:none}
+.student-details-page .historical-reference-row strong{font-size:13px;line-height:1.5;color:#272a35;font-weight:650;overflow-wrap:anywhere}
+.student-details-page .edit-grid{grid-template-columns:1fr 1fr;gap:22px 28px}
+.student-details-page .edit-grid-reference{grid-template-columns:1fr 1fr;gap:0 28px}
+.student-details-page .edit-grid-reference label{padding:14px 0;border:0;border-bottom:1px solid #ececf2;border-radius:0;background:transparent}
+@media(max-width:760px){
+ .student-details-page{padding:26px 18px 52px}
+ .student-details-page .historical-reference-list{grid-template-columns:1fr}
+ .student-details-page .historical-reference-row,.student-details-page .historical-reference-row:nth-child(odd),.student-details-page .historical-reference-row:nth-child(even){grid-template-columns:42% minmax(0,1fr);border-right:0;padding:13px 0}
+ .student-details-page .edit-grid,.student-details-page .edit-grid-reference{grid-template-columns:1fr}
+}
