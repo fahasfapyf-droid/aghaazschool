@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import type { Prisma } from "@prisma/client";
 import { getCurrentUser, roleAllowed } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { requestAuditContext, writeAuditLog } from "@/lib/audit";
@@ -111,7 +112,7 @@ function parseEnrollmentWorkbook(buffer: ArrayBuffer, fileName: string) {
 }
 
 async function getEnrollmentContext(sessionName: string) {
-  const session = await getOrCreateSession(sessionName);
+  const session = await findSession(sessionName);
   const grades = await prisma.academicGrade.findMany({
     where: { sessionId: session.id },
     select: { id: true, name: true, code: true, active: true },
@@ -165,7 +166,7 @@ async function existingRegistryBySession(sessionId: string, grNumbers: string[])
   );
 }
 
-async function findIdentity(tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0], row: PreparedEnrollmentRow) {
+async function findIdentity(tx: Prisma.TransactionClient, row: PreparedEnrollmentRow) {
   const byGr = await tx.$queryRawUnsafe<{ studentIdentityId: string }[]>(
     `SELECT e."studentIdentityId"
      FROM "StudentRegistry" sr
@@ -230,7 +231,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({
           source,
           sourceSheet: SOURCE_SHEET,
-          session: { id: session.id, name: session.name },
+          session: { id: session?.id || null, name: parsedWorkbook.sessionName, exists: Boolean(session) },
           totalSourceRows: prepared.length,
           eligibleRows: valid.length,
           readyToImport: ready.length,
@@ -260,7 +261,20 @@ export async function POST(request: NextRequest) {
       let imported = 0;
       try {
         await prisma.$transaction(async tx => {
+          const targetSession = session ?? await tx.academicSession.create({
+            data: { name: parsedWorkbook.sessionName, ...sessionDates(parsedWorkbook.sessionName) },
+          });
           for (const row of candidates) {
+            const existingForSession = await tx.$queryRawUnsafe<{ enrollmentId: string }[]>(
+              `SELECT e."id" AS "enrollmentId"
+               FROM "StudentRegistry" sr
+               JOIN "Enrollment" e ON e."id"=sr."enrollmentId"
+               WHERE e."academicSessionId"=$1 AND sr."grNumber"=$2
+               LIMIT 1`,
+              targetSession.id,
+              row.grNumber,
+            );
+            if (existingForSession[0]) continue;
             const identity = await findIdentity(tx, row);
             const numbers = await tx.$queryRawUnsafe<{ applicationNumber: string; admissionNumber: string }[]>(
               `SELECT 'REG-' || LPAD(nextval('"application_number_seq"')::text, 5, '0') AS "applicationNumber",
@@ -272,7 +286,7 @@ export async function POST(request: NextRequest) {
             const application = await tx.application.create({
               data: {
                 applicationNumber: numberSet.applicationNumber,
-                sessionId: session.id,
+                sessionId: targetSession.id,
                 desiredClass: row.className,
                 studentName: row.studentName,
                 dateOfBirth: row.dateOfBirth ? new Date(row.dateOfBirth) : null,
@@ -299,7 +313,7 @@ export async function POST(request: NextRequest) {
                 admissionNumber: numberSet.admissionNumber,
                 className: row.className,
                 section: null,
-                academicSessionId: session.id,
+                academicSessionId: targetSession.id,
                 academicGradeId: row.gradeId,
                 academicSectionId: null,
                 enrolledAt: new Date(),
@@ -309,12 +323,12 @@ export async function POST(request: NextRequest) {
 
             await tx.$executeRaw`INSERT INTO "StudentRegistry" ("id","enrollmentId","grNumber") VALUES (${randomUUID()},${enrollment.id},${row.grNumber})`;
 
-            await tx.enrollmentHistory.create({
+              await tx.enrollmentHistory.create({
               data: {
                 enrollmentId: enrollment.id,
                 action: "IMPORTED_REFERENCE_DATA",
                 academicSessionId: session.id,
-                academicSessionName: session.name,
+                academicSessionName: targetSession.name,
                 academicGradeId: row.gradeId,
                 academicGradeName: row.gradeName || row.className,
                 className: row.className,
@@ -341,9 +355,9 @@ export async function POST(request: NextRequest) {
         userId: user.id,
         action: "HISTORICAL_ENROLLMENT_IMPORT",
         entityType: "AcademicSession",
-        entityId: session.id,
+        entityId: session?.id || "created-during-import",
         metadata: {
-          sessionName: session.name,
+          sessionName: parsedWorkbook.sessionName,
           sourceFile: file.name,
           sourceSheet: SOURCE_SHEET,
           imported,
@@ -354,7 +368,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         imported,
         remaining,
-        session: { id: session.id, name: session.name },
+        session: { id: session?.id || null, name: parsedWorkbook.sessionName },
       });
     }
 
