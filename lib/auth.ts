@@ -73,12 +73,19 @@ export async function getCurrentUser() {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   const session = verifySessionToken(token);
   if (!session) return null;
-  const user = await prisma.user.findFirst({
-    where: { id: session.userId, active: true },
-    select: { id: true, name: true, phone: true, email: true, role: true, active: true, mustChangePassword: true, updatedAt: true },
-  });
+
+  const user = session.role === "FAMILY"
+    ? await prisma.user.findFirst({
+        where: { id: session.userId, active: true },
+        select: { id: true, name: true, username: true, phone: true, email: true, role: true, active: true, mustChangePassword: true, updatedAt: true },
+      })
+    : await prisma.user.findFirst({
+        where: { id: session.userId, active: true },
+        select: { id: true, name: true, phone: true, email: true, role: true, active: true, mustChangePassword: true, updatedAt: true },
+      });
+
   if (!user || session.iat < user.updatedAt.getTime()) return null;
-  return user;
+  return "username" in user ? user : { ...user, username: null };
 }
 
 export async function requireUser() {
