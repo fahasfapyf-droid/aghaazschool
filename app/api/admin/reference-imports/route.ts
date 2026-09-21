@@ -26,13 +26,13 @@ function excelDate(value: unknown) {
 function parseEnrollmentWorkbook(buffer: ArrayBuffer) {
   const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
   const sheet = workbook.Sheets[SOURCE_SHEET];
-  if (!sheet) throw new Error(\`The workbook must contain a "\${SOURCE_SHEET}" sheet.\`);
+  if (!sheet) throw new Error(`The workbook must contain a "${SOURCE_SHEET}" sheet.`);
   return XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: null, raw: true }).map((row, index) => ({ ...row, __rowNumber: index + 2 }));
 }
 
 async function getEnrollmentContext() {
   const session = await prisma.academicSession.findUnique({ where: { name: SESSION_NAME } });
-  if (!session) throw new Error(\`Academic session \${SESSION_NAME} is not configured.\`);
+  if (!session) throw new Error(`Academic session ${SESSION_NAME} is not configured.`);
   const grades = await prisma.academicGrade.findMany({
     where: { sessionId: session.id },
     select: { id: true, name: true, code: true, active: true },
@@ -129,7 +129,7 @@ export async function POST(request: NextRequest) {
           const application = await tx.application.create({
             data: {
               id: randomUUID(),
-              applicationNumber: \`HIST-2627-\${row.grNumber}\`,
+              applicationNumber: `HIST-2627-${row.grNumber}`,
               sessionId: session.id,
               desiredClass: row.className,
               studentName: row.studentName,
@@ -145,19 +145,19 @@ export async function POST(request: NextRequest) {
           const enrollment = await tx.enrollment.create({
             data: {
               id: randomUUID(), applicationId: application.id, studentId: application.id,
-              admissionNumber: \`LEGACY-\${row.grNumber}\`, className: row.className, section: null,
+              admissionNumber: `LEGACY-${row.grNumber}`, className: row.className, section: null,
               academicSessionId: session.id, academicGradeId: row.gradeId, academicSectionId: null,
               enrolledAt: new Date(), status: "ACTIVE",
             },
           });
-          await tx.$executeRaw\`INSERT INTO "StudentRegistry" ("id","enrollmentId","grNumber") VALUES (\${randomUUID()},\${enrollment.id},\${row.grNumber})\`;
+          await tx.$executeRaw`INSERT INTO "StudentRegistry" ("id","enrollmentId","grNumber") VALUES (${randomUUID()},${enrollment.id},${row.grNumber})`;
           await tx.enrollmentHistory.create({
             data: {
               enrollmentId: enrollment.id, action: "IMPORTED_REFERENCE_DATA",
               academicSessionId: session.id, academicSessionName: session.name,
               academicGradeId: row.gradeId, academicGradeName: row.gradeName || row.className,
               className: row.className, section: null, status: "ACTIVE",
-              note: \`Imported from \${SOURCE_SHEET} row \${row.rowNumber}; shift: \${row.shift || "not recorded"}\`,
+              note: `Imported from ${SOURCE_SHEET} row ${row.rowNumber}; shift: ${row.shift || "not recorded"}`,
               createdBy: user.id,
             },
           });
