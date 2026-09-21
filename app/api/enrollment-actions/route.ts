@@ -4,6 +4,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, roleAllowed } from "@/lib/auth";
 import { requestAuditContext, writeAuditLog } from "@/lib/audit";
+import { generateGrNumber } from "@/lib/student-registry";
 
 const roles = ["SUPER_ADMIN", "ADMIN", "RECEPTIONIST"] as const;
 const activeStatuses = ["active", "enrolled", "ACTIVE", "ENROLLED"];
@@ -149,20 +150,7 @@ export async function POST(request: NextRequest) {
           },
         });
 
-        const grRows = await tx.$queryRawUnsafe<{grNumber:string}[]>(
-          `SELECT "prefix","nextNumber","padding"
-             FROM "StudentRegistryConfig" WHERE "id"='default' FOR UPDATE`
-        );
-        const cfg = grRows[0] as unknown as {prefix:string;nextNumber:number;padding:number} | undefined;
-        const grPrefix = cfg?.prefix ?? "GR-";
-        const grNext = cfg?.nextNumber ?? 1;
-        const grPadding = cfg?.padding ?? 5;
-        const grNumber = `${grPrefix}${String(grNext).padStart(grPadding,"0")}`;
-        if (cfg) {
-          await tx.$executeRawUnsafe(
-            `UPDATE "StudentRegistryConfig" SET "nextNumber"="nextNumber"+1,"updatedAt"=CURRENT_TIMESTAMP WHERE "id"='default'`
-          );
-        }
+        const grNumber = await generateGrNumber(tx);
 
         const registry = await tx.$queryRawUnsafe<{id:string}[]>(
           `INSERT INTO "StudentRegistry" ("id","enrollmentId","grNumber") VALUES ($1,$2,$3) RETURNING "id"`,
