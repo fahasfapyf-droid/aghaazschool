@@ -70,6 +70,12 @@ function resolveGrade(className: string) {
   };
   if (aliases[key]) return { ...aliases[key], section: null };
 
+  const aghaazSectionMatch = raw.match(/^aghaaz\s+(junior|senior)\s*([ab])$/i);
+  if (aghaazSectionMatch) {
+    const gradeName = `Aghaaz ${aghaazSectionMatch[1].replace(/^\\w/, char => char.toUpperCase())}`;
+    return { gradeName, gradeCode: gradeName.toUpperCase().replace(/[^A-Z0-9]+/g, "-"), section: aghaazSectionMatch[2].toUpperCase() };
+  }
+
   const sectionMatch = raw.match(/^class\s*(i{1,3}|iv|v|vi|[1-9])\s*([ab])$/i);
   if (sectionMatch) {
     const token = sectionMatch[1];
@@ -194,7 +200,11 @@ function prepareEnrollmentRows(
     const grNumber = String(row.GR ?? "").trim();
     const duplicate = !grNumber || seen.has(grNumber);
     if (grNumber) seen.add(grNumber);
-    const className = String(row.Class ?? row["current Class"] ?? "").trim() || "Unplaced";
+    const originalClassName = String(row.Class ?? "").trim();
+    const currentClassName = String(row["current Class"] ?? "").trim();
+    const className = (!originalClassName || normalize(originalClassName) === "newadmission" || normalize(originalClassName) === "unplaced")
+      ? (currentClassName || originalClassName || "Unplaced")
+      : originalClassName;
     const resolved = resolveGrade(className);
     const grade = resolved.gradeCode
       ? grades.find(item => item.active && (item.code === resolved.gradeCode || normalize(item.name) === normalize(resolved.gradeName || ""))) || null
