@@ -8,10 +8,12 @@ export async function getCustomFieldDefinitions(registration=false){
 }
 
 export async function generateGrNumber(tx:Prisma.TransactionClient){
+  await tx.$executeRawUnsafe(`INSERT INTO "StudentRegistryConfig" ("id","prefix","nextNumber","padding") VALUES ('default','GR-',1,5) ON CONFLICT ("id") DO NOTHING`);
   const rows=await tx.$queryRawUnsafe<{prefix:string;nextNumber:number;padding:number}[]>(`SELECT "prefix","nextNumber","padding" FROM "StudentRegistryConfig" WHERE "id"='default' FOR UPDATE`);
-  const cfg=rows[0]||{prefix:"GR-",nextNumber:1,padding:5};
+  const cfg=rows[0];
+  if(!cfg) throw new Error("STUDENT_REGISTRY_CONFIG_MISSING");
   const grNumber=`${cfg.prefix}${String(cfg.nextNumber).padStart(cfg.padding,"0")}`;
-  if(rows[0]) await tx.$executeRawUnsafe(`UPDATE "StudentRegistryConfig" SET "nextNumber"="nextNumber"+1,"updatedAt"=CURRENT_TIMESTAMP WHERE "id"='default'`);
+  await tx.$executeRawUnsafe(`UPDATE "StudentRegistryConfig" SET "nextNumber"="nextNumber"+1,"updatedAt"=CURRENT_TIMESTAMP WHERE "id"='default'`);
   return grNumber;
 }
 
