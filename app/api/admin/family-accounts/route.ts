@@ -17,13 +17,7 @@ export async function GET() {
       orderBy: { createdAt: "desc" },
       include: {
         user: {
-          select: {
-            id: true,
-            name: true,
-            username: true,
-            active: true,
-            createdAt: true,
-          },
+          select: { id: true, name: true, username: true, active: true, createdAt: true },
         },
         students: {
           include: {
@@ -56,8 +50,14 @@ export async function POST(request: NextRequest) {
     const name = String(body.name || "").trim();
     const username = String(body.username || "").trim().toLowerCase();
     const password = String(body.password || "");
-    const enrollmentIds = Array.isArray(body.enrollmentIds)
-      ? [...new Set(body.enrollmentIds.map(String).filter(Boolean))]
+    const enrollmentIds: string[] = Array.isArray(body.enrollmentIds)
+      ? Array.from(
+          new Set(
+            body.enrollmentIds
+              .map((value: unknown) => String(value).trim())
+              .filter((value: string) => Boolean(value)),
+          ),
+        )
       : [];
 
     if (name.length < 2 || name.length > 100) {
@@ -115,19 +115,13 @@ export async function POST(request: NextRequest) {
           role: UserRole.FAMILY,
           mustChangePassword: false,
         },
-        select: {
-          id: true,
-          name: true,
-          username: true,
-          role: true,
-          active: true,
-        },
+        select: { id: true, name: true, username: true, role: true, active: true },
       });
 
       const family = await tx.familyAccount.create({ data: { userId: user.id } });
 
       await tx.familyAccountStudent.createMany({
-        data: enrollmentIds.map((enrollmentId) => ({
+        data: enrollmentIds.map((enrollmentId: string) => ({
           familyAccountId: family.id,
           enrollmentId,
         })),
@@ -137,12 +131,7 @@ export async function POST(request: NextRequest) {
         where: { id: family.id },
         include: {
           user: {
-            select: {
-              id: true,
-              name: true,
-              username: true,
-              active: true,
-            },
+            select: { id: true, name: true, username: true, active: true },
           },
           students: {
             include: {
