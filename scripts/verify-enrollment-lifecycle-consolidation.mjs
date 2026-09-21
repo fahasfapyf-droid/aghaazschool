@@ -11,7 +11,7 @@ const checks = [
   ["re-admission links to prior enrollment", canonical.includes("reAdmissionOfId: enrollment.id")],
   ["re-admission allocates a fresh GR registry row", canonical.includes('INSERT INTO "StudentRegistry"') && canonical.includes('nextNumber')],
   ["re-admission generates UUIDs safely", canonical.includes('import { randomUUID } from "node:crypto"') && canonical.includes("randomUUID()")],
-  ["reactivation bypasses active-only guard", canonical.includes('input.action !== "REACTIVATE" && !activeStatuses.includes(enrollment.status)')],
+  ["reactivation and readmission bypass active-only guard", canonical.includes('["REACTIVATE", "READMIT"].includes(input.action)') && canonical.includes('!activeStatuses.includes(enrollment.status)')],
   ["reactivation validates target capacity with row lock", canonical.includes('FOR UPDATE') && canonical.includes('input.action === "REACTIVATE"')],
   ["legacy lifecycle delegates to canonical endpoint", legacy.includes('import { POST as enrollmentActionsPost } from "@/app/api/enrollment-actions/route"')],
   ["legacy lifecycle contains no direct Prisma mutation", !legacy.includes("@/lib/prisma") && !legacy.includes("prisma.$transaction") && !legacy.includes("tx.enrollment")],
