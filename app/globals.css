@@ -20,3 +20,17 @@
 .historical-reference-field strong{font-size:12px;line-height:1.45;color:#292c39;font-weight:700;overflow-wrap:anywhere}
 @media(max-width:900px){.historical-reference-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:560px){.historical-reference-grid{grid-template-columns:1fr}}
+
+.edit-student-card{border:2px solid #e8e4ff}
+.edit-section{padding-top:22px;margin-top:22px;border-top:1px solid #ececf3}
+.edit-section:first-of-type{margin-top:0;padding-top:0;border-top:0}
+.edit-section h3{margin:0 0 6px;font-size:15px}
+.edit-help{margin:0 0 16px;color:#777b89;font-size:12px;line-height:1.5}
+.edit-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.edit-grid label{display:flex;flex-direction:column;gap:7px;font-size:12px;font-weight:700;color:#414452}
+.edit-grid input,.edit-grid select{width:100%;box-sizing:border-box}
+.edit-grid label small{font-size:10px;color:#999cab;font-weight:600}
+.edit-grid-reference{grid-template-columns:repeat(3,minmax(0,1fr))}
+.edit-grid-reference input:disabled{background:#f3f3f6;color:#888;cursor:not-allowed}
+@media(max-width:900px){.edit-grid,.edit-grid-reference{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:560px){.edit-grid,.edit-grid-reference{grid-template-columns:1fr}}
