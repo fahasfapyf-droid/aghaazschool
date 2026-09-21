@@ -80,9 +80,9 @@ export async function POST(request: NextRequest) {
         },
       });
       if (!enrollment) throw new Error("ENROLLMENT_NOT_FOUND");
-      if (input.action !== "REACTIVATE" && !activeStatuses.includes(enrollment.status)) {
-      throw new Error(`ENROLLMENT_NOT_ACTIVE:${enrollment.status}`);
-    }
+      if (!["REACTIVATE", "READMIT"].includes(input.action) && !activeStatuses.includes(enrollment.status)) {
+        throw new Error(`ENROLLMENT_NOT_ACTIVE:${enrollment.status}`);
+      }
 
       const source = {
         sessionId: enrollment.academicSessionId,
