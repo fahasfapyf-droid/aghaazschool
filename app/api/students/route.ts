@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
     const q = searchParams.get("q")?.trim() || undefined;
     const className = searchParams.get("class")?.trim() || undefined;
     const statusParam = searchParams.get("status")?.trim().toUpperCase() || undefined;
-    const statusFilter = statusParam === "ALL" ? undefined : statusParam ? [statusParam, statusParam.toLowerCase()] : ["ACTIVE", "active", "ENROLLED", "enrolled"];
+    const statusFilter = statusParam === "FORMER" ? ["LEFT", "left", "EXPELLED", "expelled", "WITHDRAWN", "withdrawn", "TRANSFERRED", "transferred", "INACTIVE", "inactive"] : statusParam && statusParam !== "ALL" ? [statusParam, statusParam.toLowerCase()] : ["ACTIVE", "active", "ENROLLED", "enrolled"];
     const teacherSectionIds = user.role === "TEACHER" ? await getTeacherSectionIds(user.id) : null;
     if (user.role === "TEACHER" && teacherSectionIds?.length === 0) return NextResponse.json([]);
     const students = await prisma.application.findMany({
