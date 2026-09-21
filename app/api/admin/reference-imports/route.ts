@@ -450,6 +450,9 @@ export async function POST(request: NextRequest) {
             });
             imported += 1;
           }
+        }, {
+          maxWait: 10000,
+          timeout: 120000,
         });
       } catch (error) {
         if (error instanceof Error && error.message.startsWith("AMBIGUOUS_STUDENT_IDENTITY:")) {
