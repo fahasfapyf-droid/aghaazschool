@@ -36,6 +36,7 @@ type TermReport = {
   obtainedMarks: number;
   enteredSubjects: number;
   complete: boolean;
+  grade: string | null;
 };
 type Config = {
   term: string;
@@ -119,7 +120,7 @@ export async function GET(req: NextRequest) {
   const configuredTerms = new Map<string, TermReport>();
   for (const config of configurations) {
     const key = config.term;
-    const term = configuredTerms.get(key) || { key, name: termName(key), order: termOrder[key] ?? 99, subjects: [], totalMarks: 0, obtainedMarks: 0, enteredSubjects: 0, complete: false };
+    const term = configuredTerms.get(key) || { key, name: termName(key), order: termOrder[key] ?? 99, subjects: [], totalMarks: 0, obtainedMarks: 0, enteredSubjects: 0, complete: false, grade: null };
     const result = resultByTermSubject.get(`${key}:${config.subject.toLowerCase()}`);
     const maxMarks = Number(config.maxMarks);
     const entered = Boolean(result);
@@ -139,6 +140,7 @@ export async function GET(req: NextRequest) {
     });
     term.totalMarks += maxMarks;
     if (entered) { term.obtainedMarks += marks!; term.enteredSubjects += 1; }
+    term.grade = term.totalMarks ? resolveGrade(gradingBands, (term.obtainedMarks / term.totalMarks) * 100) : null;
     configuredTerms.set(key, term);
   }
 
@@ -152,13 +154,14 @@ export async function GET(req: NextRequest) {
     const detectedLegacyTerm = legacyTerm(exam.name);
     const order = exam.term ? termOrder[exam.term] : detectedLegacyTerm ? termOrder[detectedLegacyTerm] : exam.startDate.getTime();
     const name = exam.term ? termName(exam.term) : exam.name;
-    const term = fallbackTerms.get(key) || { key, name, order, subjects: [], totalMarks: 0, obtainedMarks: 0, enteredSubjects: 0, complete: false };
+    const term = fallbackTerms.get(key) || { key, name, order, subjects: [], totalMarks: 0, obtainedMarks: 0, enteredSubjects: 0, complete: false, grade: null };
     const maxMarks = Number(result.paper.maxMarks);
     const marks = resultMarks(Number(result.marks), result.components);
     term.subjects.push({ subject: result.paper.subject, maxMarks, marks, percentage: maxMarks ? (marks / maxMarks) * 100 : 0, grade: result.grade || resolveGrade(gradingBands, maxMarks ? (marks / maxMarks) * 100 : 0), entered: true, remarks: result.remarks, components: result.components.map(c => ({ name: c.name, maxMarks: Number(c.maxMarks), marks: Number(c.marks) })) });
     term.totalMarks += maxMarks;
     term.obtainedMarks += marks;
     term.enteredSubjects += 1;
+    term.grade = term.totalMarks ? resolveGrade(gradingBands, (term.obtainedMarks / term.totalMarks) * 100) : null;
     fallbackTerms.set(key, term);
   }
 
