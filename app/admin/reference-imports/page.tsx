@@ -11,7 +11,8 @@ type EnrollmentPreview = {
   readyToImport: number;
   alreadyImported: number;
   missingOrInvalidRows: number;
-  unmatchedClasses: string[];
+  gradeCreationPlan: Array<{ name: string | null; code: string | null }>;
+  unmappedClasses: string[];
   readyGrNumbers: string[];
   sample: Array<{ rowNumber: number; grNumber: string; studentName: string; guardianName: string; className: string; gradeName: string | null; shift: string }>;
 };
@@ -142,11 +143,17 @@ export default function ReferenceImportsPage() {
         <div className="module-card"><h3>Existing</h3><strong>{preview.alreadyImported}</strong><span>Left unchanged</span></div>
       </div>}
 
-      {preview?.unmatchedClasses.length ? <div className="status-card" style={{ marginTop: 16 }}>Classes without an exact configured academic grade mapping: {preview.unmatchedClasses.join(", ")}. Those students can still be imported; their original class name is preserved and the academic grade link remains empty for later placement.</div> : null}
+      {preview?.gradeCreationPlan.length ? <div className="status-card" style={{ marginTop: 16 }}>
+        <b>Academic grades to be created automatically:</b> {preview.gradeCreationPlan.map(item => item.name).filter(Boolean).join(", ")}.
+        These are created only when the import is committed, reused if already present, and derived from the source class names. Class 1 A/B source values are normalized to Grade Class 1 with section A/B while the original class value remains preserved.
+      </div> : null}
+      {preview?.unmappedClasses.length ? <div className="status-card" style={{ marginTop: 16 }}>
+        <b>Source classes intentionally left without a grade:</b> {preview.unmappedClasses.join(", ")}. The original class value is preserved for review.
+      </div> : null}
 
       {preview && <div className="table-wrap" style={{ marginTop: 16 }}>
         <table><thead><tr><th>Source row</th><th>GR</th><th>Student</th><th>Father</th><th>Class</th><th>Academic grade</th><th>Shift</th></tr></thead>
-          <tbody>{preview.sample.map(row => <tr key={row.grNumber}><td>{row.rowNumber}</td><td>{row.grNumber}</td><td>{row.studentName}</td><td>{row.guardianName}</td><td>{row.className}</td><td>{row.gradeName || "Unmapped"}</td><td>{row.shift || "—"}</td></tr>)}</tbody>
+          <tbody>{preview.sample.map(row => <tr key={row.grNumber}><td>{row.rowNumber}</td><td>{row.grNumber}</td><td>{row.studentName}</td><td>{row.guardianName}</td><td>{row.className}</td><td>{row.gradeName || "Source class only"}</td><td>{row.shift || "—"}</td></tr>)}</tbody>
         </table>
       </div>}
 
