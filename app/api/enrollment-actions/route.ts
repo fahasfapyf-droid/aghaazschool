@@ -137,6 +137,7 @@ export async function POST(request: NextRequest) {
           data: {
             applicationId: application.id,
             studentId: `STU-${randomUUID().slice(0,8).toUpperCase()}`,
+            studentIdentityId: enrollment.studentIdentityId,
             admissionNumber: numberSet.admissionNumber,
             className: target.grade.name,
             section: target.name,
