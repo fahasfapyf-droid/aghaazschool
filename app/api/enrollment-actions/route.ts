@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, roleAllowed } from "@/lib/auth";
@@ -135,7 +136,7 @@ export async function POST(request: NextRequest) {
         const newEnrollment = await tx.enrollment.create({
           data: {
             applicationId: application.id,
-            studentId: `STU-${crypto.randomUUID().slice(0,8).toUpperCase()}`,
+            studentId: `STU-${randomUUID().slice(0,8).toUpperCase()}`,
             admissionNumber: numberSet.admissionNumber,
             className: target.grade.name,
             section: target.name,
