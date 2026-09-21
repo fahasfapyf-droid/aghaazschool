@@ -52,7 +52,7 @@ export default function ReferenceImportsPage() {
     setWorking(false);
     if (!response.ok) { setMessage(data.error || "Workbook preview failed."); return; }
     setPreview(data);
-    setMessage(\`Preview ready: \${data.readyToImport} row(s) are eligible for import.\`);
+    setMessage(`Preview ready: ${data.readyToImport} row(s) are eligible for import.`);
   }
 
   async function importWorkbook() {
@@ -68,10 +68,10 @@ export default function ReferenceImportsPage() {
       const data = await response.json();
       if (!response.ok) { setMessage(data.error || "Import failed."); setWorking(false); return; }
       imported += data.imported || 0;
-      setMessage(\`Importing 2026–2027 enrollment: \${imported} / \${preview.readyGrNumbers.length}\`);
+      setMessage(`Importing 2026–2027 enrollment: ${imported} / ${preview.readyGrNumbers.length}`);
     }
     setWorking(false);
-    setMessage(\`Import complete: \${imported} enrollment record(s) created. Existing records were left unchanged.\`);
+    setMessage(`Import complete: ${imported} enrollment record(s) created. Existing records were left unchanged.`);
     setPreview(null);
   }
 
@@ -82,7 +82,7 @@ export default function ReferenceImportsPage() {
       body: JSON.stringify({ source, rows }),
     });
     const data = await response.json();
-    setMessage(response.ok ? \`Validation complete: \${data.validRows} valid row(s), \${data.invalidRows} invalid row(s). No records were written.\` : data.error || "Validation failed.");
+    setMessage(response.ok ? `Validation complete: ${data.validRows} valid row(s), ${data.invalidRows} invalid row(s). No records were written.` : data.error || "Validation failed.");
   }
 
   return <main className="container">
