@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 type Student = { id: string; application?: { studentName?: string }; admissionNumber?: string };
 type ComponentReport = { name: string; maxMarks: number; marks: number };
 type SubjectReport = { subject: string; maxMarks: number; marks: number | null; percentage: number | null; grade: string | null; entered: boolean; remarks?: string | null; components: ComponentReport[] };
-type TermReport = { key: string; name: string; subjects: SubjectReport[]; totalMarks: number; obtainedMarks: number; enteredSubjects: number; complete: boolean };
+type TermReport = { key: string; name: string; subjects: SubjectReport[]; totalMarks: number; obtainedMarks: number; enteredSubjects: number; complete: boolean; grade: string | null };
 type Report = {
   student: { name: string; guardianName: string; guardianPhone: string; admissionNumber: string; grNumber?: string | null; className: string; section?: string; session: string };
   terms: TermReport[];
@@ -66,7 +66,7 @@ export default function ReportCards() {
 
   const term = useMemo(() => report?.terms.find(item => item.key === selectedTerm) || report?.terms[0] || null, [report, selectedTerm]);
   const termPercentage = term?.totalMarks ? (term.obtainedMarks / term.totalMarks) * 100 : null;
-  const termGrade = termPercentage === null ? null : termPercentage >= 90 ? "A+" : termPercentage >= 80 ? "A" : termPercentage >= 70 ? "B+" : termPercentage >= 60 ? "B" : termPercentage >= 50 ? "C" : termPercentage >= 40 ? "D" : "E";
+  const termGrade = term?.grade || null;
   const reportTitle = term?.name || "Assessment Report";
 
   return (
