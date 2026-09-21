@@ -338,123 +338,156 @@ export async function POST(request: NextRequest) {
       if (mode !== "import") return NextResponse.json({ error: "Mode must be preview or import." }, { status: 400 });
       const requestedGrNumbers = JSON.parse(clean(String(form.get("grNumbers") || "[]"))) as string[];
       const requested = new Set(requestedGrNumbers);
+      // The UI submits up to 50 GRs per request, but each request is committed in
+      // smaller interactive transactions. Each row performs several dependent DB
+      // operations, so keeping 50 rows inside Prisma's short default transaction
+      // window can close the transaction before the batch finishes.
       const candidates = ready.filter(row => requested.has(row.grNumber)).slice(0, 50);
       if (!candidates.length) return NextResponse.json({ imported: 0, skipped: requested.size, remaining: 0 });
+      const TRANSACTION_BATCH_SIZE = 10;
+      const TRANSACTION_TIMEOUT_MS = 30_000;
+      const TRANSACTION_MAX_WAIT_MS = 10_000;
 
       const context = requestAuditContext(request);
       let imported = 0;
+      let committedSessionId = session?.id || null;
+      let committedSessionName = session?.name || parsedWorkbook.sessionName;
+
       try {
-        await prisma.$transaction(async tx => {
-          const targetSession = session ?? await tx.academicSession.create({
-            data: { name: parsedWorkbook.sessionName, ...sessionDates(parsedWorkbook.sessionName) },
-          });
+        for (let batchStart = 0; batchStart < candidates.length; batchStart += TRANSACTION_BATCH_SIZE) {
+          const batch = candidates.slice(batchStart, batchStart + TRANSACTION_BATCH_SIZE);
 
-          const gradeCache = new Map<string, string>();
-          const existingGrades = await tx.academicGrade.findMany({
-            where: { sessionId: targetSession.id, active: true },
-            select: { id: true, code: true },
-          });
-          for (const grade of existingGrades) gradeCache.set(grade.code, grade.id);
+          const batchResult = await prisma.$transaction(async tx => {
+            const targetSession = committedSessionId
+              ? { id: committedSessionId, name: committedSessionName }
+              : await tx.academicSession.create({
+                  data: { name: parsedWorkbook.sessionName, ...sessionDates(parsedWorkbook.sessionName) },
+                  select: { id: true, name: true },
+                });
 
-          let nextDisplayOrder = existingGrades.length;
-          for (const row of candidates) {
-            if (row.gradeCode && !gradeCache.has(row.gradeCode)) {
-              const grade = await tx.academicGrade.create({
-                data: {
-                  sessionId: targetSession.id,
-                  name: row.gradeName || row.className,
-                  code: row.gradeCode,
-                  displayOrder: nextDisplayOrder++,
-                  active: true,
-                },
-                select: { id: true, code: true },
-              });
-              gradeCache.set(grade.code, grade.id);
+            const gradeCache = new Map<string, string>();
+            const existingGrades = await tx.academicGrade.findMany({
+              where: { sessionId: targetSession.id, active: true },
+              select: { id: true, code: true },
+            });
+            for (const grade of existingGrades) gradeCache.set(grade.code, grade.id);
+
+            let nextDisplayOrder = existingGrades.length;
+            for (const row of batch) {
+              if (row.gradeCode && !gradeCache.has(row.gradeCode)) {
+                const grade = await tx.academicGrade.create({
+                  data: {
+                    sessionId: targetSession.id,
+                    name: row.gradeName || row.className,
+                    code: row.gradeCode,
+                    displayOrder: nextDisplayOrder++,
+                    active: true,
+                  },
+                  select: { id: true, code: true },
+                });
+                gradeCache.set(grade.code, grade.id);
+              }
+              if (row.gradeCode) row.gradeId = gradeCache.get(row.gradeCode) || row.gradeId;
             }
-            if (row.gradeCode) row.gradeId = gradeCache.get(row.gradeCode) || row.gradeId;
-          }
 
-          for (const row of candidates) {
-            const existingForSession = await tx.$queryRawUnsafe<{ enrollmentId: string }[]>(
-              `SELECT e."id" AS "enrollmentId"
-               FROM "StudentRegistry" sr
-               JOIN "Enrollment" e ON e."id"=sr."enrollmentId"
-               WHERE e."academicSessionId"=$1 AND sr."grNumber"=$2
-               LIMIT 1`,
-              targetSession.id,
-              row.grNumber,
-            );
-            if (existingForSession[0]) continue;
-            const identity = await findIdentity(tx, row);
-            const numbers = await tx.$queryRawUnsafe<{ applicationNumber: string; admissionNumber: string }[]>(
-              `SELECT 'REG-' || LPAD(nextval('"application_number_seq"')::text, 5, '0') AS "applicationNumber",
-                      'ADM-' || LPAD(nextval('"admission_number_seq"')::text, 5, '0') AS "admissionNumber"`
-            );
-            const numberSet = numbers[0];
-            if (!numberSet) throw new Error("NUMBER_ALLOCATION_FAILED");
+            let batchImported = 0;
+            for (const row of batch) {
+              const existingForSession = await tx.$queryRawUnsafe<{ enrollmentId: string }[]>(
+                `SELECT e."id" AS "enrollmentId"
+                 FROM "StudentRegistry" sr
+                 JOIN "Enrollment" e ON e."id"=sr."enrollmentId"
+                 WHERE e."academicSessionId"=$1 AND sr."grNumber"=$2
+                 LIMIT 1`,
+                targetSession.id,
+                row.grNumber,
+              );
+              if (existingForSession[0]) continue;
 
-            const application = await tx.application.create({
-              data: {
-                applicationNumber: numberSet.applicationNumber,
-                sessionId: targetSession.id,
-                desiredClass: row.className,
-                studentName: row.studentName,
-                dateOfBirth: row.dateOfBirth ? new Date(row.dateOfBirth) : null,
-                gender: row.gender as "MALE" | "FEMALE" | undefined,
-                guardianName: row.guardianName,
-                guardianPhone: row.guardianPhone,
-                remarks: `Imported reference data from ${file.name}; source session ${parsedWorkbook.sessionName}`,
-                formData: JSON.parse(JSON.stringify({
-                  source: file.name,
-                  sheet: SOURCE_SHEET,
-                  rowNumber: row.rowNumber,
-                  shift: row.shift,
-                  legacy: row.source,
-                })),
-                status: "ENROLLED",
-              },
-            });
+              const identity = await findIdentity(tx, row);
+              const numbers = await tx.$queryRawUnsafe<{ applicationNumber: string; admissionNumber: string }[]>(
+                `SELECT 'REG-' || LPAD(nextval('"application_number_seq"')::text, 5, '0') AS "applicationNumber",
+                        'ADM-' || LPAD(nextval('"admission_number_seq"')::text, 5, '0') AS "admissionNumber"`
+              );
+              const numberSet = numbers[0];
+              if (!numberSet) throw new Error("NUMBER_ALLOCATION_FAILED");
 
-            const enrollment = await tx.enrollment.create({
-              data: {
-                applicationId: application.id,
-                studentId: `STU-${randomUUID().slice(0, 8).toUpperCase()}`,
-                studentIdentityId: identity.id,
-                admissionNumber: numberSet.admissionNumber,
-                className: row.className,
-                section: row.section,
-                academicSessionId: targetSession.id,
-                academicGradeId: row.gradeId,
-                academicSectionId: null,
-                enrolledAt: new Date(),
-                status: "ACTIVE",
-              },
-            });
+              const application = await tx.application.create({
+                data: {
+                  applicationNumber: numberSet.applicationNumber,
+                  sessionId: targetSession.id,
+                  desiredClass: row.className,
+                  studentName: row.studentName,
+                  dateOfBirth: row.dateOfBirth ? new Date(row.dateOfBirth) : null,
+                  gender: row.gender as "MALE" | "FEMALE" | undefined,
+                  guardianName: row.guardianName,
+                  guardianPhone: row.guardianPhone,
+                  remarks: `Imported reference data from ${file.name}; source session ${parsedWorkbook.sessionName}`,
+                  formData: JSON.parse(JSON.stringify({
+                    source: file.name,
+                    sheet: SOURCE_SHEET,
+                    rowNumber: row.rowNumber,
+                    shift: row.shift,
+                    legacy: row.source,
+                  })),
+                  status: "ENROLLED",
+                },
+              });
 
-            await tx.$executeRaw`INSERT INTO "StudentRegistry" ("id","enrollmentId","grNumber") VALUES (${randomUUID()},${enrollment.id},${row.grNumber})`;
+              const enrollment = await tx.enrollment.create({
+                data: {
+                  applicationId: application.id,
+                  studentId: `STU-${randomUUID().slice(0, 8).toUpperCase()}`,
+                  studentIdentityId: identity.id,
+                  admissionNumber: numberSet.admissionNumber,
+                  className: row.className,
+                  section: row.section,
+                  academicSessionId: targetSession.id,
+                  academicGradeId: row.gradeId,
+                  academicSectionId: null,
+                  enrolledAt: new Date(),
+                  status: "ACTIVE",
+                },
+              });
+
+              await tx.$executeRaw`INSERT INTO "StudentRegistry" ("id","enrollmentId","grNumber") VALUES (${randomUUID()},${enrollment.id},${row.grNumber})`;
 
               await tx.enrollmentHistory.create({
-              data: {
-                enrollmentId: enrollment.id,
-                action: "IMPORTED_REFERENCE_DATA",
-                academicSessionId: targetSession.id,
-                academicSessionName: targetSession.name,
-                academicGradeId: row.gradeId,
-                academicGradeName: row.gradeName || row.className,
-                className: row.className,
-                section: row.section,
-                status: "ACTIVE",
-                note: `Imported from ${file.name}, ${SOURCE_SHEET} row ${row.rowNumber}; shift: ${row.shift || "not recorded"}`,
-                createdBy: user.id,
-              },
-            });
-            imported += 1;
-          }
-        });
+                data: {
+                  enrollmentId: enrollment.id,
+                  action: "IMPORTED_REFERENCE_DATA",
+                  academicSessionId: targetSession.id,
+                  academicSessionName: targetSession.name,
+                  academicGradeId: row.gradeId,
+                  academicGradeName: row.gradeName || row.className,
+                  className: row.className,
+                  section: row.section,
+                  status: "ACTIVE",
+                  note: `Imported from ${file.name}, ${SOURCE_SHEET} row ${row.rowNumber}; shift: ${row.shift || "not recorded"}`,
+                  createdBy: user.id,
+                },
+              });
+              batchImported += 1;
+            }
+
+            return {
+              sessionId: targetSession.id,
+              sessionName: targetSession.name,
+              imported: batchImported,
+            };
+          }, {
+            maxWait: TRANSACTION_MAX_WAIT_MS,
+            timeout: TRANSACTION_TIMEOUT_MS,
+          });
+
+          committedSessionId = batchResult.sessionId;
+          committedSessionName = batchResult.sessionName;
+          imported += batchResult.imported;
+        }
       } catch (error) {
         if (error instanceof Error && error.message.startsWith("AMBIGUOUS_STUDENT_IDENTITY:")) {
           return NextResponse.json({
             error: `Student identity is ambiguous for source row ${error.message.split(":")[1]}. The row was not imported; resolve the matching student before retrying.`,
+            imported,
           }, { status: 409 });
         }
         throw error;
@@ -478,7 +511,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         imported,
         remaining,
-        session: { id: session?.id || null, name: parsedWorkbook.sessionName },
+        session: { id: committedSessionId, name: committedSessionName },
       });
     }
 
