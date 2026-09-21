@@ -13,3 +13,10 @@
 .chip-row{display:flex;flex-wrap:wrap;gap:7px}.chip-row .status-pill{display:inline-flex}
 @media print{.no-print{display:none!important}.container{max-width:none!important;padding:0!important}.slc-sheet{margin:0;border:0;box-shadow:none;max-width:none;min-height:100vh;padding:30px}.slc-signatures{margin-top:100px}}
 @media(max-width:700px){.slc-sheet{padding:22px}.slc-meta{flex-direction:column}.slc-signatures{grid-template-columns:1fr;gap:42px}}
+
+.historical-reference-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px 12px;margin-top:4px}
+.historical-reference-field{min-width:0;padding:12px 14px;border:1px solid #eeeef4;border-radius:11px;background:#fafaff;display:flex;flex-direction:column;gap:6px}
+.historical-reference-field small{font-size:9px;line-height:1.2;color:#858897;text-transform:uppercase;letter-spacing:.055em;font-weight:800}
+.historical-reference-field strong{font-size:12px;line-height:1.45;color:#292c39;font-weight:700;overflow-wrap:anywhere}
+@media(max-width:900px){.historical-reference-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:560px){.historical-reference-grid{grid-template-columns:1fr}}
