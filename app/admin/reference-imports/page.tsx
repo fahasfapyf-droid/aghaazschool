@@ -5,7 +5,7 @@ import Link from "next/link";
 
 type PreviewRow = Record<string, string>;
 type EnrollmentPreview = {
-  session: { id: string; name: string };
+  session: { id: string | null; name: string; exists?: boolean };
   totalSourceRows: number;
   eligibleRows: number;
   readyToImport: number;
@@ -68,10 +68,10 @@ export default function ReferenceImportsPage() {
       const data = await response.json();
       if (!response.ok) { setMessage(data.error || "Import failed."); setWorking(false); return; }
       imported += data.imported || 0;
-      setMessage(`Importing 2026–2027 enrollment: ${imported} / ${preview.readyGrNumbers.length}`);
+      setMessage(`Importing ${preview.session.name} enrollment: ${imported} / ${preview.readyGrNumbers.length}`);
     }
     setWorking(false);
-    setMessage(`Import complete: ${imported} enrollment record(s) created. Existing records were left unchanged.`);
+    setMessage(`Import complete for ${preview.session.name}: ${imported} enrollment record(s) created. Existing records were left unchanged.`);
     setPreview(null);
   }
 
@@ -99,7 +99,7 @@ export default function ReferenceImportsPage() {
       <div className="form-grid">
         <label>Reference source
           <select className="input" value={source} onChange={e => { setSource(e.target.value as "enrollment" | "staff"); setText(""); setFile(null); setPreview(null); setMessage(""); }}>
-            <option value="enrollment">Session 2026–2027 enrollment / G.R.</option>
+            <option value="enrollment">Historical enrollment / G.R. workbook</option>
             <option value="staff">Teaching Employees Record</option>
           </select>
         </label>
@@ -115,7 +115,7 @@ export default function ReferenceImportsPage() {
 
       {source === "enrollment" && <div className="panel" style={{ marginTop: 16 }}>
         <strong>Import behavior</strong>
-        <p style={{ marginBottom: 0 }}>Reads only the <b>G.R</b> worksheet and only rows whose Status is <b>enrolled</b>. The original row is preserved in the student's form data. GR Number becomes the Student Registry identifier; the source Shift is preserved separately and is not treated as a section.</p>
+        <p style={{ marginBottom: 0 }}>Reads the <b>G.R</b> worksheet and only rows whose Status is <b>enrolled</b>. The academic session is detected from the workbook name, metadata, sheet names, or early rows. If that session does not exist, it is created automatically when the import is committed. The original row is preserved in form data. GR is treated as a historical enrollment identifier: the same GR may appear in different academic sessions without overwriting older records.</p>
       </div>}
 
       <div className="panel" style={{ marginTop: 16 }}>
@@ -134,10 +134,11 @@ export default function ReferenceImportsPage() {
         </table>
       </div>}
 
+      {preview && <div className="status-card" style={{ marginTop: 18 }}>Detected academic session: <b>{preview.session.name}</b>{preview.session.exists ? " — existing session reused." : " — new session will be created when you import."}</div>}
       {preview && <div className="module-grid" style={{ marginTop: 18 }}>
         <div className="module-card"><h3>Source rows</h3><strong>{preview.totalSourceRows}</strong><span>Rows with Status = enrolled</span></div>
         <div className="module-card"><h3>Eligible</h3><strong>{preview.eligibleRows}</strong><span>Valid GR/name/guardian rows</span></div>
-        <div className="module-card"><h3>Ready</h3><strong>{preview.readyToImport}</strong><span>Not already in Student Registry</span></div>
+        <div className="module-card"><h3>Ready</h3><strong>{preview.readyToImport}</strong><span>Not already imported for this academic session</span></div>
         <div className="module-card"><h3>Existing</h3><strong>{preview.alreadyImported}</strong><span>Left unchanged</span></div>
       </div>}
 
