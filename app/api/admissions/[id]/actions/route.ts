@@ -100,7 +100,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         const countRows = await tx.$queryRawUnsafe<{ count: bigint }[]>(`SELECT COUNT(*)::bigint AS count FROM "Enrollment" WHERE "academicSectionId"=$1 AND lower("status") IN ('active','enrolled')`, section.id);
         if (Number(countRows[0]?.count || 0) >= Number(section.capacity)) throw new Error("ACADEMIC_SECTION_AT_CAPACITY");
       }
-      const created = await tx.enrollment.create({ data: { applicationId: id, studentId: input.studentId, admissionNumber: input.admissionNumber, className: grade.name, section: section.name, academicSessionId: grade.sessionId, academicGradeId: grade.id, academicSectionId: section.id } });
+      const studentIdentity = await tx.studentIdentity.create({ data: {} });
+      const created = await tx.enrollment.create({ data: { applicationId: id, studentId: input.studentId, studentIdentityId: studentIdentity.id, admissionNumber: input.admissionNumber, className: grade.name, section: section.name, academicSessionId: grade.sessionId, academicGradeId: grade.id, academicSectionId: section.id } });
       const grNumber = await generateGrNumber(tx);
       const registryRows = await tx.$queryRawUnsafe<{ id: string }[]>(`INSERT INTO "StudentRegistry" ("id","enrollmentId","grNumber") VALUES ($1,$2,$3) RETURNING "id"`, randomUUID(), created.id, grNumber);
       if (!registryRows[0]) throw new Error("STUDENT_REGISTRY_CREATE_FAILED");
