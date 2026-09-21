@@ -105,3 +105,29 @@
  .student-details-page .edit-grid,.student-details-page .edit-grid-reference{grid-template-columns:1fr}
 }
 @media(max-width:520px){.student-details-page .admission-stats{grid-template-columns:1fr}}
+
+/* Final separation for Student Details value pairs.
+   Scoped to non-historical detail grids only. */
+.student-details-page .detail-grid > div{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+  justify-content:flex-start;
+  gap:8px;
+}
+.student-details-page .detail-grid > div > small{
+  display:block !important;
+  width:100%;
+  margin:0 !important;
+  font-size:11px;
+  line-height:1.3;
+  color:#777b89;
+}
+.student-details-page .detail-grid > div > strong{
+  display:block !important;
+  width:100%;
+  margin:0 !important;
+  font-size:13px;
+  line-height:1.45;
+  color:#292c39;
+}
