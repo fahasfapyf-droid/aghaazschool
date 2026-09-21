@@ -9,7 +9,7 @@ const checks = [
   ["canonical endpoint supports REACTIVATE", canonical.includes('z.literal("REACTIVATE")')],
   ["canonical endpoint supports READMIT", canonical.includes('z.literal("READMIT")')],
   ["re-admission links to prior enrollment", canonical.includes("reAdmissionOfId: enrollment.id")],
-  ["re-admission allocates a fresh GR registry row", canonical.includes('INSERT INTO "StudentRegistry"') && canonical.includes('nextNumber')],
+  ["re-admission allocates a fresh GR registry row", canonical.includes('INSERT INTO "StudentRegistry"') && canonical.includes("generateGrNumber")],
   ["re-admission generates UUIDs safely", canonical.includes('import { randomUUID } from "node:crypto"') && canonical.includes("randomUUID()")],
   ["reactivation and readmission bypass active-only guard", canonical.includes('["REACTIVATE", "READMIT"].includes(input.action)') && canonical.includes('!activeStatuses.includes(enrollment.status)')],
   ["reactivation validates target capacity with row lock", canonical.includes('FOR UPDATE') && canonical.includes('input.action === "REACTIVATE"')],
