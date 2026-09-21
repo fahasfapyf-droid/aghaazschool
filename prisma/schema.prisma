@@ -352,7 +352,10 @@ model Enrollment {
   academicSectionId String?
   enrolledAt DateTime @default(now())
   status String @default("ACTIVE")
+  reAdmissionOfId String?
   application Application @relation(fields: [applicationId], references: [id])
+  reAdmissionOf Enrollment? @relation("EnrollmentReAdmission", fields: [reAdmissionOfId], references: [id], onDelete: SetNull)
+  reAdmissions Enrollment[] @relation("EnrollmentReAdmission")
   academicSession AcademicSession? @relation("EnrollmentAcademicSession", fields: [academicSessionId], references: [id], onDelete: SetNull)
   academicGrade AcademicGrade? @relation("EnrollmentAcademicGrade", fields: [academicGradeId], references: [id], onDelete: SetNull)
   academicSection AcademicSection? @relation("EnrollmentAcademicSection", fields: [academicSectionId], references: [id], onDelete: SetNull)
@@ -367,6 +370,7 @@ model Enrollment {
   @@index([academicSessionId])
   @@index([academicGradeId])
   @@index([academicSectionId])
+  @@index([reAdmissionOfId])
 }
 
 model EnrollmentHistory {
