@@ -474,15 +474,22 @@ model Staff {
   name String
   staffType String
   designation String
+  fatherName String?
+  employeeCnic String?
   phone String?
+  emergencyContact String?
   email String?
   gender Gender?
   dateOfBirth DateTime?
   joiningDate DateTime @default(now())
   subject String?
+  academicQualification String?
+  professionalQualification String?
+  trainingCourses String?
   qualifications String?
   assignedClasses String?
   salary Decimal? @db.Decimal(12,2)
+  employmentStatus String @default("EMPLOYED")
   active Boolean @default(true)
   notes String?
   payrollRecords PayrollRecord[]
