@@ -35,38 +35,4 @@
 @media(max-width:900px){.edit-grid,.edit-grid-reference{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:560px){.edit-grid,.edit-grid-reference{grid-template-columns:1fr}}
 
-/* Student Details: spacious, form-first layout */
-.student-details-page{max-width:1180px;padding:42px 34px 70px}
-.student-details-page .admissions-header{margin-bottom:30px}
-.student-details-page .admissions-header h1{font-size:34px}
-.student-details-page .admission-stats{gap:16px;margin-bottom:22px}
-.student-details-page .admission-stat{min-height:112px;padding:20px 22px;align-content:center}
-.student-details-page .applications-card{padding:26px 28px;border-radius:18px}
-.student-details-page .table-toolbar{margin-bottom:24px}
-.student-details-page .detail-grid{gap:18px 30px}
-.student-details-page .detail-grid>div{padding:15px 16px;border:1px solid #eeeef4;border-radius:12px;background:#fbfbfd}
-.student-details-page .historical-reference-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px 18px;margin-top:8px}
-.student-details-page .historical-reference-field{padding:15px 17px;border-radius:12px;background:#fbfbfd}
-.student-details-page .historical-reference-field small{font-size:10px;letter-spacing:.07em}
-.student-details-page .historical-reference-field strong{font-size:13px;line-height:1.5}
-.student-details-page .edit-student-card{border:1px solid #dcd6fa;background:#fff}
-.student-details-page .edit-section{padding-top:28px;margin-top:28px}
-.student-details-page .edit-section h3{font-size:16px;margin-bottom:7px}
-.student-details-page .edit-help{max-width:760px;margin-bottom:20px}
-.student-details-page .edit-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:20px 24px}
-.student-details-page .edit-grid label{gap:8px;font-size:12px}
-.student-details-page .edit-grid input,.student-details-page .edit-grid select{min-height:44px;padding:10px 12px;border:1px solid #dfdfe8;border-radius:10px;background:#fff;outline:none}
-.student-details-page .edit-grid input:focus,.student-details-page .edit-grid select:focus{border-color:#9b8de8;box-shadow:0 0 0 3px #7964e814}
-.student-details-page .edit-grid-reference{grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 24px}
-.student-details-page .edit-grid-reference label{padding:14px 15px;border:1px solid #eeeef4;border-radius:12px;background:#fbfbfd}
-.student-details-page .edit-grid-reference input{background:#fff}
-.student-details-page .edit-grid-reference input:disabled{background:#f0f0f4;color:#888;cursor:not-allowed}
-.student-details-page .edit-student-card .table-toolbar{align-items:flex-start}
-@media(max-width:760px){
- .student-details-page{padding:28px 18px 50px}
- .student-details-page .admissions-header{align-items:flex-start;flex-direction:column}
- .student-details-page .admission-stats{grid-template-columns:1fr 1fr}
- .student-details-page .applications-card{padding:20px}
- .student-details-page .historical-reference-grid,.student-details-page .edit-grid,.student-details-page .edit-grid-reference{grid-template-columns:1fr}
-}
-@media(max-width:520px){.student-details-page .admission-stats{grid-template-columns:1fr}}
+
