@@ -70,33 +70,33 @@ function resolveGrade(className: string) {
   };
   if (aliases[key]) return { ...aliases[key], section: null };
 
-  const sectionMatch = raw.match(/^class\\s*(i{1,3}|iv|v|vi|[1-9])\\s*([ab])$/i);
+  const sectionMatch = raw.match(/^class\s*(i{1,3}|iv|v|vi|[1-9])\s*([ab])$/i);
   if (sectionMatch) {
     const token = sectionMatch[1];
-    const number = /^\\d+$/.test(token) ? Number(token) : romanToNumber(token.toUpperCase());
+    const number = /^\d+$/.test(token) ? Number(token) : romanToNumber(token.toUpperCase());
     if (number) {
       return { gradeName: `Class ${number}`, gradeCode: `CLASS-${number}`, section: sectionMatch[2].toUpperCase() };
     }
   }
 
-  const romanMatch = raw.match(/^class\\s*(i{1,6}|v|x)$/i);
+  const romanMatch = raw.match(/^class\s*(i{1,6}|v|x)$/i);
   if (romanMatch) {
     const number = romanToNumber(romanMatch[1].toUpperCase());
     if (number) return { gradeName: `Class ${number}`, gradeCode: `CLASS-${number}`, section: null };
   }
 
-  const numericMatch = raw.match(/^class\\s*([0-9]+)$/i);
+  const numericMatch = raw.match(/^class\s*([0-9]+)$/i);
   if (numericMatch) {
     const number = Number(numericMatch[1]);
     return { gradeName: `Class ${number}`, gradeCode: `CLASS-${number}`, section: null };
   }
 
-  if (/^\\d+$/.test(raw)) {
+  if (/^\d+$/.test(raw)) {
     return { gradeName: `Class ${Number(raw)}`, gradeCode: `CLASS-${Number(raw)}`, section: null };
   }
 
   return {
-    gradeName: raw.replace(/\\s+/g, " ").replace(/\\b\\w/g, char => char.toUpperCase()),
+    gradeName: raw.replace(/\s+/g, " ").replace(/\b\\w/g, char => char.toUpperCase()),
     gradeCode: raw.toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-|-$/g, ""),
     section: null,
   };
