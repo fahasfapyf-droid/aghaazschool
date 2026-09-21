@@ -16,7 +16,7 @@ type EnrollmentPreview = {
   gradeCreationPlan: Array<{ name: string | null; code: string | null }>;
   unmappedClasses: string[];
   readyGrNumbers: string[];
-  sample: Array<{ rowNumber: number; grNumber: string; studentName: string; guardianName: string; className: string; gradeName: string | null; shift: string }>;
+  sample: Array<{ rowNumber: number; grNumber: string; studentName: string; guardianName: string; className: string; gradeName: string | null; shift: string; status?: string }>;
 };
 
 const targets = {
