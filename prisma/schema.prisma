@@ -340,10 +340,19 @@ model AdmissionPayment {
   application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 }
 
+model StudentIdentity {
+  id String @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  enrollments Enrollment[]
+  @@index([createdAt])
+}
+
 model Enrollment {
   id String @id @default(cuid())
   applicationId String @unique
   studentId String @unique
+  studentIdentityId String
   admissionNumber String @unique
   className String
   section String?
@@ -354,6 +363,7 @@ model Enrollment {
   status String @default("ACTIVE")
   reAdmissionOfId String?
   application Application @relation(fields: [applicationId], references: [id])
+  studentIdentity StudentIdentity @relation(fields: [studentIdentityId], references: [id], onDelete: Restrict)
   reAdmissionOf Enrollment? @relation("EnrollmentReAdmission", fields: [reAdmissionOfId], references: [id], onDelete: SetNull)
   reAdmissions Enrollment[] @relation("EnrollmentReAdmission")
   academicSession AcademicSession? @relation("EnrollmentAcademicSession", fields: [academicSessionId], references: [id], onDelete: SetNull)
@@ -371,6 +381,7 @@ model Enrollment {
   @@index([academicGradeId])
   @@index([academicSectionId])
   @@index([reAdmissionOfId])
+  @@index([studentIdentityId])
 }
 
 model EnrollmentHistory {
