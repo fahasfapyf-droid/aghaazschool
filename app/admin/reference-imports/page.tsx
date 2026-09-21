@@ -7,6 +7,8 @@ type PreviewRow = Record<string, string>;
 type EnrollmentPreview = {
   session: { id: string | null; name: string; exists?: boolean };
   totalSourceRows: number;
+  statusCounts?: { enrolled: number; left: number; expelled: number; needsReview: number };
+  reviewRows?: Array<{ rowNumber: number; grNumber: string; studentName: string; sourceStatus: string; errors: string[] }>;
   eligibleRows: number;
   readyToImport: number;
   alreadyImported: number;
@@ -137,7 +139,11 @@ export default function ReferenceImportsPage() {
 
       {preview && <div className="status-card" style={{ marginTop: 18 }}>Detected academic session: <b>{preview.session.name}</b>{preview.session.exists ? " — existing session reused." : " — new session will be created when you import."}</div>}
       {preview && <div className="module-grid" style={{ marginTop: 18 }}>
-        <div className="module-card"><h3>Source rows</h3><strong>{preview.totalSourceRows}</strong><span>Rows with Status = enrolled</span></div>
+        <div className="module-card"><h3>Source rows</h3><strong>{preview.totalSourceRows}</strong><span>All extracted source rows</span></div>
+        <div className="module-card"><h3>Enrolled</h3><strong>{preview.statusCounts?.enrolled ?? 0}</strong><span>Rows classified as currently enrolled</span></div>
+        <div className="module-card"><h3>Left</h3><strong>{preview.statusCounts?.left ?? 0}</strong><span>Rows retained as former students</span></div>
+        <div className="module-card"><h3>Expelled</h3><strong>{preview.statusCounts?.expelled ?? 0}</strong><span>Rows retained as former students</span></div>
+        <div className="module-card"><h3>Needs review</h3><strong>{preview.statusCounts?.needsReview ?? 0}</strong><span>Never silently imported</span></div>
         <div className="module-card"><h3>Eligible</h3><strong>{preview.eligibleRows}</strong><span>Valid GR/name/guardian rows</span></div>
         <div className="module-card"><h3>Ready</h3><strong>{preview.readyToImport}</strong><span>Not already imported for this academic session</span></div>
         <div className="module-card"><h3>Existing</h3><strong>{preview.alreadyImported}</strong><span>Left unchanged</span></div>
@@ -151,9 +157,16 @@ export default function ReferenceImportsPage() {
         <b>Source classes intentionally left without a grade:</b> {preview.unmappedClasses.join(", ")}. The original class value is preserved for review.
       </div> : null}
 
+      {preview?.reviewRows?.length ? <div className="status-card" style={{ marginTop: 16 }}>
+        <b>Rows requiring review:</b> {preview.reviewRows.length}. These rows are not silently discarded; the source row number, status, and reason are shown below.
+        <div className="table-wrap" style={{ marginTop: 12 }}><table><thead><tr><th>Excel row</th><th>GR</th><th>Student</th><th>Source status</th><th>Reason</th></tr></thead>
+          <tbody>{preview.reviewRows.map(row => <tr key={row.rowNumber}><td>{row.rowNumber}</td><td>{row.grNumber || "—"}</td><td>{row.studentName || "—"}</td><td>{row.sourceStatus || "—"}</td><td>{row.errors.join(" ")}</td></tr>)}</tbody>
+        </table></div>
+      </div> : null}
+
       {preview && <div className="table-wrap" style={{ marginTop: 16 }}>
-        <table><thead><tr><th>Source row</th><th>GR</th><th>Student</th><th>Father</th><th>Class</th><th>Academic grade</th><th>Shift</th></tr></thead>
-          <tbody>{preview.sample.map(row => <tr key={row.grNumber}><td>{row.rowNumber}</td><td>{row.grNumber}</td><td>{row.studentName}</td><td>{row.guardianName}</td><td>{row.className}</td><td>{row.gradeName || "Source class only"}</td><td>{row.shift || "—"}</td></tr>)}</tbody>
+        <table><thead><tr><th>Source row</th><th>GR</th><th>Student</th><th>Father</th><th>Class</th><th>Academic grade</th><th>Shift</th><th>Status</th></tr></thead>
+          <tbody>{preview.sample.map(row => <tr key={row.grNumber}><td>{row.rowNumber}</td><td>{row.grNumber}</td><td>{row.studentName}</td><td>{row.guardianName}</td><td>{row.className}</td><td>{row.gradeName || "Source class only"}</td><td>{row.shift || "—"}</td><td>{row.status || "—"}</td></tr>)}</tbody>
         </table>
       </div>}
 
