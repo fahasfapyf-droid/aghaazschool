@@ -28,11 +28,79 @@ type PreparedEnrollmentRow = {
   gender: "MALE" | "FEMALE" | null;
   className: string;
   shift: string;
+  section: string | null;
   gradeId: string | null;
   gradeName: string | null;
+  gradeCode: string | null;
   valid: boolean;
   source: Record<string, unknown>;
 };
+
+function romanToNumber(value: string) {
+  const map: Record<string, number> = { I: 1, V: 5, X: 10 };
+  let total = 0;
+  let previous = 0;
+  for (const char of value.split("").reverse()) {
+    const current = map[char] || 0;
+    total += current < previous ? -current : current;
+    previous = current;
+  }
+  return total || null;
+}
+
+function resolveGrade(className: string) {
+  const raw = className.trim();
+  const key = normalize(raw);
+  if (!key || key === "newadmission" || key === "unplaced") {
+    return { gradeName: null, gradeCode: null, section: null };
+  }
+
+  const aliases: Record<string, { gradeName: string; gradeCode: string }> = {
+    nursery: { gradeName: "Nursery", gradeCode: "NURSERY" },
+    kg: { gradeName: "KG", gradeCode: "KG" },
+    kg1: { gradeName: "KG1", gradeCode: "KG1" },
+    kindergarten: { gradeName: "Kindergarten", gradeCode: "KINDERGARTEN" },
+    aghaaz: { gradeName: "Aghaaz", gradeCode: "AGHAAZ" },
+    aghaazjunior: { gradeName: "Aghaaz Junior", gradeCode: "AGHAAZ-JUNIOR" },
+    aghaazsenior: { gradeName: "Aghaaz Senior", gradeCode: "AGHAAZ-SENIOR" },
+    s1: { gradeName: "S1", gradeCode: "S1" },
+    girlliteracy: { gradeName: "Girl Literacy", gradeCode: "GIRL-LITERACY" },
+    primarya: { gradeName: "Primary A", gradeCode: "PRIMARY-A" },
+    primaryb: { gradeName: "Primary B", gradeCode: "PRIMARY-B" },
+  };
+  if (aliases[key]) return { ...aliases[key], section: null };
+
+  const sectionMatch = raw.match(/^class\\s*(i{1,3}|iv|v|vi|[1-9])\\s*([ab])$/i);
+  if (sectionMatch) {
+    const token = sectionMatch[1];
+    const number = /^\\d+$/.test(token) ? Number(token) : romanToNumber(token.toUpperCase());
+    if (number) {
+      return { gradeName: `Class ${number}`, gradeCode: `CLASS-${number}`, section: sectionMatch[2].toUpperCase() };
+    }
+  }
+
+  const romanMatch = raw.match(/^class\\s*(i{1,6}|v|x)$/i);
+  if (romanMatch) {
+    const number = romanToNumber(romanMatch[1].toUpperCase());
+    if (number) return { gradeName: `Class ${number}`, gradeCode: `CLASS-${number}`, section: null };
+  }
+
+  const numericMatch = raw.match(/^class\\s*([0-9]+)$/i);
+  if (numericMatch) {
+    const number = Number(numericMatch[1]);
+    return { gradeName: `Class ${number}`, gradeCode: `CLASS-${number}`, section: null };
+  }
+
+  if (/^\\d+$/.test(raw)) {
+    return { gradeName: `Class ${Number(raw)}`, gradeCode: `CLASS-${Number(raw)}`, section: null };
+  }
+
+  return {
+    gradeName: raw.replace(/\\s+/g, " ").replace(/\\b\\w/g, char => char.toUpperCase()),
+    gradeCode: raw.toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-|-$/g, ""),
+    section: null,
+  };
+}
 
 function excelDate(value: unknown) {
   if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
@@ -127,8 +195,10 @@ function prepareEnrollmentRows(
     const duplicate = !grNumber || seen.has(grNumber);
     if (grNumber) seen.add(grNumber);
     const className = String(row.Class ?? row["current Class"] ?? "").trim() || "Unplaced";
-    const gradeKey = normalize(className);
-    const grade = grades.find(item => item.active && (normalize(item.name) === gradeKey || normalize(item.code) === gradeKey)) || null;
+    const resolved = resolveGrade(className);
+    const grade = resolved.gradeCode
+      ? grades.find(item => item.active && (item.code === resolved.gradeCode || normalize(item.name) === normalize(resolved.gradeName || ""))) || null
+      : null;
     const dob = excelDate(row["D.O.B"]);
     const gender = String(row.G ?? "").trim().toLowerCase();
     return {
@@ -140,9 +210,11 @@ function prepareEnrollmentRows(
       dateOfBirth: dob?.toISOString() || null,
       gender: gender === "m" ? "MALE" : gender === "f" ? "FEMALE" : null,
       className,
+      section: resolved.section,
       shift: String(row.Shift ?? "").trim(),
       gradeId: grade?.id || null,
-      gradeName: grade?.name || null,
+      gradeName: grade?.name || resolved.gradeName,
+      gradeCode: grade?.code || resolved.gradeCode,
       valid: Boolean(grNumber && String(row.Name ?? "").trim() && String(row["Father Name"] ?? "").trim() && !duplicate),
       source: row,
     };
@@ -232,7 +304,14 @@ export async function POST(request: NextRequest) {
           readyToImport: ready.length,
           alreadyImported: existing.length,
           missingOrInvalidRows: prepared.length - valid.length,
-          unmatchedClasses: [...new Set(ready.filter(row => !row.gradeId).map(row => row.className))],
+          gradeCreationPlan: [...new Map(
+            ready
+              .filter(row => row.gradeCode && !row.gradeId)
+              .map(row => [row.gradeCode, { name: row.gradeName, code: row.gradeCode }])
+          ).values()],
+          unmappedClasses: [...new Set(
+            ready.filter(row => !row.gradeCode).map(row => row.className)
+          )],
           readyGrNumbers: ready.map(row => row.grNumber),
           sample: ready.slice(0, 25).map(row => ({
             rowNumber: row.rowNumber,
@@ -259,6 +338,32 @@ export async function POST(request: NextRequest) {
           const targetSession = session ?? await tx.academicSession.create({
             data: { name: parsedWorkbook.sessionName, ...sessionDates(parsedWorkbook.sessionName) },
           });
+
+          const gradeCache = new Map<string, string>();
+          const existingGrades = await tx.academicGrade.findMany({
+            where: { sessionId: targetSession.id, active: true },
+            select: { id: true, code: true },
+          });
+          for (const grade of existingGrades) gradeCache.set(grade.code, grade.id);
+
+          let nextDisplayOrder = existingGrades.length;
+          for (const row of candidates) {
+            if (row.gradeCode && !gradeCache.has(row.gradeCode)) {
+              const grade = await tx.academicGrade.create({
+                data: {
+                  sessionId: targetSession.id,
+                  name: row.gradeName || row.className,
+                  code: row.gradeCode,
+                  displayOrder: nextDisplayOrder++,
+                  active: true,
+                },
+                select: { id: true, code: true },
+              });
+              gradeCache.set(grade.code, grade.id);
+            }
+            if (row.gradeCode) row.gradeId = gradeCache.get(row.gradeCode) || row.gradeId;
+          }
+
           for (const row of candidates) {
             const existingForSession = await tx.$queryRawUnsafe<{ enrollmentId: string }[]>(
               `SELECT e."id" AS "enrollmentId"
@@ -307,7 +412,7 @@ export async function POST(request: NextRequest) {
                 studentIdentityId: identity.id,
                 admissionNumber: numberSet.admissionNumber,
                 className: row.className,
-                section: null,
+                section: row.section,
                 academicSessionId: targetSession.id,
                 academicGradeId: row.gradeId,
                 academicSectionId: null,
@@ -327,7 +432,7 @@ export async function POST(request: NextRequest) {
                 academicGradeId: row.gradeId,
                 academicGradeName: row.gradeName || row.className,
                 className: row.className,
-                section: null,
+                section: row.section,
                 status: "ACTIVE",
                 note: `Imported from ${file.name}, ${SOURCE_SHEET} row ${row.rowNumber}; shift: ${row.shift || "not recorded"}`,
                 createdBy: user.id,
