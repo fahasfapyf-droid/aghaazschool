@@ -90,13 +90,8 @@ function sessionDates(name: string) {
   };
 }
 
-async function getOrCreateSession(sessionName: string) {
-  const existing = await prisma.academicSession.findUnique({ where: { name: sessionName } });
-  if (existing) return existing;
-  const dates = sessionDates(sessionName);
-  return prisma.academicSession.create({
-    data: { name: sessionName, startDate: dates.startDate, endDate: dates.endDate },
-  });
+async function findSession(sessionName: string) {
+  return prisma.academicSession.findUnique({ where: { name: sessionName } });
 }
 
 function parseEnrollmentWorkbook(buffer: ArrayBuffer, fileName: string) {
@@ -114,7 +109,7 @@ function parseEnrollmentWorkbook(buffer: ArrayBuffer, fileName: string) {
 async function getEnrollmentContext(sessionName: string) {
   const session = await findSession(sessionName);
   const grades = await prisma.academicGrade.findMany({
-    where: { sessionId: session.id },
+    where: { sessionId: session?.id || "__missing_session__" },
     select: { id: true, name: true, code: true, active: true },
     orderBy: { displayOrder: "asc" },
   });
@@ -223,7 +218,7 @@ export async function POST(request: NextRequest) {
       const { session, grades } = await getEnrollmentContext(parsedWorkbook.sessionName);
       const prepared = prepareEnrollmentRows(parsedWorkbook.rows, grades);
       const valid = prepared.filter(row => row.valid);
-      const existing = await existingRegistryBySession(session.id, valid.map(row => row.grNumber));
+      const existing = session ? await existingRegistryBySession(session.id, valid.map(row => row.grNumber)) : [];
       const existingSet = new Set(existing.map(row => row.grNumber));
       const ready = valid.filter(row => !existingSet.has(row.grNumber));
 
@@ -293,7 +288,7 @@ export async function POST(request: NextRequest) {
                 gender: row.gender as "MALE" | "FEMALE" | undefined,
                 guardianName: row.guardianName,
                 guardianPhone: row.guardianPhone,
-                remarks: `Imported reference data from ${file.name}; source session ${session.name}`,
+                remarks: `Imported reference data from ${file.name}; source session ${parsedWorkbook.sessionName}`,
                 formData: JSON.parse(JSON.stringify({
                   source: file.name,
                   sheet: SOURCE_SHEET,
@@ -327,7 +322,7 @@ export async function POST(request: NextRequest) {
               data: {
                 enrollmentId: enrollment.id,
                 action: "IMPORTED_REFERENCE_DATA",
-                academicSessionId: session.id,
+                academicSessionId: targetSession.id,
                 academicSessionName: targetSession.name,
                 academicGradeId: row.gradeId,
                 academicGradeName: row.gradeName || row.className,
