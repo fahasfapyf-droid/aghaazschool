@@ -72,7 +72,7 @@ function resolveGrade(className: string) {
 
   const aghaazSectionMatch = raw.match(/^aghaaz\s+(junior|senior)\s*([ab])$/i);
   if (aghaazSectionMatch) {
-    const gradeName = `Aghaaz ${aghaazSectionMatch[1].replace(/^\\w/, char => char.toUpperCase())}`;
+    const gradeName = `Aghaaz ${aghaazSectionMatch[1].replace(/^\w/, char => char.toUpperCase())}`;
     return { gradeName, gradeCode: gradeName.toUpperCase().replace(/[^A-Z0-9]+/g, "-"), section: aghaazSectionMatch[2].toUpperCase() };
   }
 
@@ -102,7 +102,7 @@ function resolveGrade(className: string) {
   }
 
   return {
-    gradeName: raw.replace(/\s+/g, " ").replace(/\b\\w/g, char => char.toUpperCase()),
+    gradeName: raw.replace(/\s+/g, " ").replace(/\b\w/g, char => char.toUpperCase()),
     gradeCode: raw.toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-|-$/g, ""),
     section: null,
   };
