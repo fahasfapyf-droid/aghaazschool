@@ -96,10 +96,10 @@ export async function POST(request: NextRequest) {
       const { session, grades } = await getEnrollmentContext();
       const prepared = prepareEnrollmentRows(parseEnrollmentWorkbook(await file.arrayBuffer()), grades);
       const valid = prepared.filter(row => row.valid);
-      const existing = valid.length ? await prisma.studentRegistry.findMany({
-        where: { grNumber: { in: valid.map(row => row.grNumber) } },
-        select: { grNumber: true },
-      }) : [];
+      const existing = valid.length ? await prisma.$queryRawUnsafe<{ grNumber: string }[]>(
+        `SELECT "grNumber" FROM "StudentRegistry" WHERE "grNumber" = ANY($1::text[])`,
+        valid.map(row => row.grNumber),
+      ) : [];
       const existingSet = new Set(existing.map(row => row.grNumber));
       const ready = valid.filter(row => !existingSet.has(row.grNumber));
 
