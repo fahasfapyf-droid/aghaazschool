@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, roleAllowed } from "@/lib/auth";
+import type { UserRole } from "@prisma/client";
 
 const operationSchema = z.object({
   operationKey: z.string().min(8).max(200),
@@ -11,6 +12,7 @@ const operationSchema = z.object({
   payload: z.unknown(),
   clientCreatedAt: z.string().datetime(),
 });
+const EDIT_ROLES: UserRole[] = ["SUPER_ADMIN", "ADMIN", "RECEPTIONIST"];
 const schema = z.object({ deviceKey: z.string().min(16).max(200), operations: z.array(operationSchema).max(250) });
 
 async function applyOperation(op: z.infer<typeof operationSchema>, userId: string) {
@@ -75,6 +77,7 @@ async function applyOperation(op: z.infer<typeof operationSchema>, userId: strin
 export async function POST(request: Request) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!roleAllowed(user.role, EDIT_ROLES)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const body = schema.safeParse(await request.json().catch(() => null));
   if (!body.success) return NextResponse.json({ error: "Invalid sync payload" }, { status: 400 });
 
