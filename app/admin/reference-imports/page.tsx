@@ -17,6 +17,8 @@ type EnrollmentPreview = {
   unmappedClasses: string[];
   readyGrNumbers: string[];
   sample: Array<{ rowNumber: number; grNumber: string; studentName: string; guardianName: string; className: string; gradeName: string | null; shift: string; status?: string }>;
+  sourceSheet?: string;
+  availableSheets?: string[];
 };
 
 const targets = {
@@ -35,10 +37,44 @@ function parseDelimited(text: string): PreviewRow[] {
   });
 }
 
+function ResetStudentData() {
+  const [confirming, setConfirming] = useState(false);
+  const [value, setValue] = useState("");
+  const [working, setWorking] = useState(false);
+  const [message, setMessage] = useState("");
+
+  async function reset() {
+    if (value !== "RESET STUDENT DATA") return;
+    setWorking(true); setMessage("");
+    const response = await fetch("/api/admin/reference-imports", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "reset-student-data", confirmation: value }),
+    });
+    const data = await response.json();
+    setWorking(false);
+    if (!response.ok) { setMessage(data.error || "Reset failed."); return; }
+    setMessage(`Cleared ${data.enrollments} enrollment record(s), ${data.applications} application record(s), and ${data.identities} student identity record(s).`);
+    setValue(""); setConfirming(false);
+  }
+
+  if (!confirming) return <button className="button secondary" type="button" onClick={() => setConfirming(true)}>Reset student/enrollment data</button>;
+  return <div>
+    <p><b>Destructive action:</b> this cannot be undone from the application.</p>
+    <input className="input" value={value} onChange={e => setValue(e.target.value)} placeholder="Type RESET STUDENT DATA" />
+    <div className="form-actions" style={{ marginTop: 10 }}>
+      <button className="button" type="button" onClick={() => void reset()} disabled={working || value !== "RESET STUDENT DATA"}>{working ? "Clearing…" : "Confirm reset"}</button>
+      <button className="button secondary" type="button" onClick={() => { setConfirming(false); setValue(""); }}>Cancel</button>
+    </div>
+    {message && <p>{message}</p>}
+  </div>;
+}
+
 export default function ReferenceImportsPage() {
   const [source, setSource] = useState<"enrollment" | "staff">("enrollment");
   const [text, setText] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const [sheetName, setSheetName] = useState("");
   const [preview, setPreview] = useState<EnrollmentPreview | null>(null);
   const [message, setMessage] = useState("");
   const [working, setWorking] = useState(false);
@@ -50,11 +86,13 @@ export default function ReferenceImportsPage() {
     setWorking(true); setMessage(""); setPreview(null);
     const form = new FormData();
     form.append("source", "enrollment"); form.append("mode", "preview"); form.append("file", file);
+    if (sheetName) form.append("sheetName", sheetName);
     const response = await fetch("/api/admin/reference-imports", { method: "POST", body: form });
     const data = await response.json();
     setWorking(false);
     if (!response.ok) { setMessage(data.error || "Workbook preview failed."); return; }
     setPreview(data);
+    if (!sheetName && data.sourceSheet) setSheetName(data.sourceSheet);
     setMessage(`Preview ready: ${data.readyToImport} row(s) are eligible for import.`);
   }
 
@@ -101,14 +139,14 @@ export default function ReferenceImportsPage() {
     <section className="card">
       <div className="form-grid">
         <label>Reference source
-          <select className="input" value={source} onChange={e => { setSource(e.target.value as "enrollment" | "staff"); setText(""); setFile(null); setPreview(null); setMessage(""); }}>
+          <select className="input" value={source} onChange={e => { setSource(e.target.value as "enrollment" | "staff"); setText(""); setFile(null); setSheetName(""); setPreview(null); setMessage(""); }}>
             <option value="enrollment">Historical enrollment / G.R. workbook</option>
             <option value="staff">Teaching Employees Record</option>
           </select>
         </label>
 
         {source === "enrollment" ? <label>Excel workbook (.xlsx)
-          <input className="input" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={e => { setFile(e.target.files?.[0] || null); setPreview(null); setMessage(""); }} />
+          <input className="input" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={e => { setFile(e.target.files?.[0] || null); setSheetName(""); setPreview(null); setMessage(""); }} />
         </label> : null}
 
         {source === "staff" ? <label className="full">Paste CSV or tab-separated export
@@ -118,13 +156,21 @@ export default function ReferenceImportsPage() {
 
       {source === "enrollment" && <div className="panel" style={{ marginTop: 16 }}>
         <strong>Import behavior</strong>
-        <p style={{ marginBottom: 0 }}>Reads the <b>G.R</b> worksheet and only rows whose Status is <b>enrolled</b>. The academic session is detected from the workbook name, metadata, sheet names, or early rows. If that session does not exist, it is created automatically when the import is committed. The original row is preserved in form data. GR is treated as a historical enrollment identifier: the same GR may appear in different academic sessions without overwriting older records.</p>
+        <p style={{ marginBottom: 0 }}>Reads the explicitly selected <b>G.R</b> worksheet and preserves recognized statuses including <b>enrolled</b>, <b>left</b>, and <b>expelled</b>. The academic session is detected from the workbook name, metadata, sheet names, or early rows. If that session does not exist, it is created automatically when the import is committed. The original row is preserved in form data. GR is treated as a historical enrollment identifier: the same GR may appear in different academic sessions without overwriting older records.</p>
       </div>}
 
       <div className="panel" style={{ marginTop: 16 }}>
         <h2>Expected source columns</h2>
         <div className="chip-row">{columns.map(column => <span className="status-pill" key={column}>{column}</span>)}</div>
       </div>
+
+      {source === "enrollment" && file && preview?.availableSheets?.length ? <div className="form-grid" style={{ marginTop: 16 }}>
+        <label>Workbook sheet to import
+          <select className="input" value={sheetName} onChange={e => { setSheetName(e.target.value); setPreview(null); setMessage(""); }}>
+            {preview.availableSheets.map(sheet => <option key={sheet} value={sheet}>{sheet}</option>)}
+          </select>
+        </label>
+      </div> : null}
 
       {source === "enrollment" && <div className="form-actions" style={{ marginTop: 16 }}>
         <button className="button" type="button" onClick={() => void previewWorkbook()} disabled={!file || working}>Preview workbook</button>
@@ -174,6 +220,11 @@ export default function ReferenceImportsPage() {
         <button className="button" type="button" onClick={() => void validateDelimited()} disabled={!rows.length}>Validate staged data</button>
       </div>}
 
+      {source === "enrollment" && <section className="status-card" style={{ marginTop: 24 }}>
+        <h2>Reset imported student data</h2>
+        <p>This removes all current student/enrollment records and their student-specific history so a corrected workbook can be imported from a clean state. It preserves users, staff, academic setup, school settings, and unrelated finance data.</p>
+        <ResetStudentData />
+      </section>}
       {message && <div className="status-card" style={{ marginTop: 16 }}>{message}</div>}
     </section>
   </main>;
