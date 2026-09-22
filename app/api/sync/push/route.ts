@@ -159,7 +159,7 @@ export async function POST(request: Request) {
   const duplicate: string[] = [];
   const applied: string[] = [];
   const results: { operationKey: string; operationType: string; applicationId: string; applicationNumber?: string; enquiryNumber?: string }[] = [];
-  const failed: { operationKey: string; error: string }[] = []; { operationKey: string; error: string }[] = [];
+  const failed: { operationKey: string; error: string }[] = [];
 
   for (const op of body.data.operations) {
     const existing = await prisma.syncOperation.findUnique({ where: { operationKey: op.operationKey } });
