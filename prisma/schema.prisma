@@ -786,3 +786,47 @@ model AuditLog {
   @@index([action, createdAt])
   @@index([action, ipAddress, createdAt])
 }
+
+
+model SyncDevice {
+  id String @id @default(cuid())
+  deviceKey String @unique
+  name String
+  userId String?
+  lastSeenAt DateTime @default(now())
+  lastPullAt DateTime?
+  lastPushAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  operations SyncOperation[]
+  cursor SyncCursor?
+  @@index([userId])
+}
+
+model SyncOperation {
+  id String @id @default(cuid())
+  operationKey String @unique
+  deviceId String
+  entityType String
+  entityId String
+  operationType String
+  payload Json
+  clientCreatedAt DateTime
+  receivedAt DateTime @default(now())
+  appliedAt DateTime?
+  status String @default("PENDING")
+  errorCode String?
+  errorMessage String?
+  device SyncDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  @@index([deviceId, status])
+  @@index([entityType, entityId])
+  @@index([receivedAt])
+}
+
+model SyncCursor {
+  id String @id @default(cuid())
+  deviceId String @unique
+  lastReceivedAt DateTime?
+  updatedAt DateTime @updatedAt
+  device SyncDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+}
