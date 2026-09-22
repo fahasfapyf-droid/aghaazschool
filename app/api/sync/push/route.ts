@@ -188,7 +188,7 @@ export async function POST(request: Request) {
       const result = await applyOperation(op, user.id);
       await prisma.syncOperation.update({ where: { id: record.id }, data: { status: "APPLIED", appliedAt: new Date() } });
       applied.push(op.operationKey);
-      if (result && "applicationId" in result) results.push({ operationKey: op.operationKey, operationType: op.operationType, ...result });
+      if (result && "applicationId" in result) results.push({ operationKey: op.operationKey, ...result });
     } catch (error) {
       const message = error instanceof Error ? error.message : "SYNC_OPERATION_FAILED";
       await prisma.syncOperation.update({ where: { id: record.id }, data: { status: "FAILED", errorCode: message, errorMessage: message } });
