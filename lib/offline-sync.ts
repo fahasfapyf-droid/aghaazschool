@@ -111,6 +111,7 @@ export async function synchronize() {
     });
     if (response.ok) {
       const result = await response.json();
+      if (result.results?.length) await metaSet("lastSyncResults", result.results);
       await removeQueued([...(result.applied ?? []), ...(result.duplicate ?? []).filter((key: string) => !(result.failed ?? []).some((item: { operationKey: string }) => item.operationKey === key))]);
       pushed = (result.applied ?? []).length;
     }
@@ -142,6 +143,15 @@ export async function getOfflineState() {
 
 export async function setOfflineCache<T>(key: string, value: T) {
   await metaSet("cache:" + key, { value, savedAt: new Date().toISOString() });
+}
+
+export async function deleteOfflineCache(key: string) {
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const request = db.transaction(META_STORE, "readwrite").objectStore(META_STORE).delete("cache:" + key);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
 }
 
 export async function getOfflineCache<T>(key: string): Promise<{ value: T; savedAt: string } | null> {
