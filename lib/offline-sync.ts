@@ -109,7 +109,7 @@ export async function synchronize() {
   if (!navigator.onLine) return { pushed: 0, pulled: 0, failed: 0, reachable: false, reason: "browser-offline" as const };
   const reachable = await checkServerReachability();
   if (!reachable) return { pushed: 0, pulled: 0, failed: 0, reachable: false, reason: "server-unreachable" as const };
-  const syncResult = { pushed: 0, pulled: 0, failed: 0, reachable: true, reason: "ok" as const };
+  const syncResult: { pushed: number; pulled: number; failed: number; reachable: boolean; reason: string } = { pushed: 0, pulled: 0, failed: 0, reachable: true, reason: "ok" };
   const deviceKey = await getDeviceKey();
   const register = await fetch("/api/sync/register", {
     method: "POST",
@@ -128,11 +128,23 @@ export async function synchronize() {
     });
     if (response.ok) {
       const result = await response.json();
-      if (result.results?.length) await metaSet("lastSyncResults", result.results);
+      const syncResults = [
+        ...(result.results ?? []),
+        ...((result.failed ?? []) as Array<{ operationKey: string; error: string }>).map((item) => ({
+          operationKey: item.operationKey,
+          operationType: "FAILED",
+          error: item.error,
+        })),
+      ];
+      if (syncResults.length) await metaSet("lastSyncResults", syncResults);
       await removeQueued([...(result.applied ?? []), ...(result.duplicate ?? []).filter((key: string) => !(result.failed ?? []).some((item: { operationKey: string }) => item.operationKey === key))]);
       pushed = (result.applied ?? []).length;
       syncResult.pushed = pushed;
       syncResult.failed = (result.failed ?? []).length;
+      if (syncResult.failed > 0) syncResult.reason = "operations-failed";
+    } else {
+      syncResult.reason = response.status === 401 || response.status === 403 ? "authentication-required" : "push-failed";
+      if (response.status === 401 || response.status === 403) return syncResult;
     }
   }
 
