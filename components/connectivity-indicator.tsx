@@ -3,7 +3,23 @@
 import { useCallback, useEffect, useState } from "react";
 import { checkServerReachability, getOfflineState, synchronize } from "@/lib/offline-sync";
 
-type SyncState = { online: boolean; pending: number; failed: number; syncing: boolean; reason?: string; lastSync?: string };
+type SyncState = {
+  online: boolean;
+  pending: number;
+  failed: number;
+  syncing: boolean;
+  reason?: string;
+  diagnostic?: { stage: string; reason: string; status?: number; details?: string };
+  lastSync?: string;
+};
+
+function diagnosticText(diagnostic?: SyncState["diagnostic"]) {
+  if (!diagnostic) return "";
+  const parts = [diagnostic.reason];
+  if (diagnostic.status) parts.push(`HTTP ${diagnostic.status}`);
+  if (diagnostic.details) parts.push(diagnostic.details);
+  return parts.join(" — ");
+}
 
 export default function ConnectivityIndicator() {
   const [state, setState] = useState<SyncState>({ online: true, pending: 0, failed: 0, syncing: false });
@@ -11,8 +27,15 @@ export default function ConnectivityIndicator() {
   const refresh = useCallback(async () => {
     const browserOnline = navigator.onLine;
     const online = browserOnline ? await checkServerReachability() : false;
-    const current = await getOfflineState().catch(() => ({ online, pending: 0, failed: 0 }));
-    setState((s) => ({ ...s, online, pending: current.pending, failed: current.failed ?? 0 }));
+    const current = await getOfflineState().catch(() => ({ online, pending: 0, failed: 0, diagnostic: undefined }));
+    setState((s) => ({
+      ...s,
+      online,
+      pending: current.pending,
+      failed: current.failed ?? 0,
+      diagnostic: current.diagnostic,
+      reason: current.diagnostic?.reason,
+    }));
   }, []);
 
   const syncNow = useCallback(async () => {
@@ -20,23 +43,48 @@ export default function ConnectivityIndicator() {
       await refresh();
       return;
     }
-    setState((s) => ({ ...s, online: true, syncing: true }));
+
+    setState((s) => ({ ...s, online: true, syncing: true, reason: undefined }));
+
     try {
       const result = await synchronize();
+
       if (!result.reachable) {
-        setState((s) => ({ ...s, online: false, syncing: false, reason: result.reason }));
+        const current = await getOfflineState().catch(() => ({ pending: 0, failed: 0, diagnostic: undefined }));
+        setState((s) => ({
+          ...s,
+          online: false,
+          syncing: false,
+          pending: current.pending,
+          failed: current.failed,
+          diagnostic: current.diagnostic,
+          reason: result.reason,
+        }));
         return;
       }
-      if (result.reason !== "ok") {
-        await refresh();
-        setState((s) => ({ ...s, syncing: false, reason: result.reason }));
-        return;
-      }
-      await refresh();
-      setState((s) => ({ ...s, syncing: false, reason: "ok", lastSync: new Date().toISOString() }));
-    } catch {
-      await refresh();
-      setState((s) => ({ ...s, syncing: false }));
+
+      const current = await getOfflineState().catch(() => ({ pending: 0, failed: 0, diagnostic: undefined }));
+      setState((s) => ({
+        ...s,
+        online: true,
+        syncing: false,
+        pending: current.pending,
+        failed: current.failed,
+        diagnostic: current.diagnostic,
+        reason: result.reason,
+        lastSync: result.reason === "ok" ? new Date().toISOString() : s.lastSync,
+      }));
+    } catch (error) {
+      const current = await getOfflineState().catch(() => ({ pending: 0, failed: 0, diagnostic: undefined }));
+      setState((s) => ({
+        ...s,
+        online: navigator.onLine,
+        syncing: false,
+        pending: current.pending,
+        failed: current.failed,
+        diagnostic: current.diagnostic,
+        reason: "sync-exception",
+      }));
     }
   }, [refresh]);
 
@@ -57,20 +105,38 @@ export default function ConnectivityIndicator() {
     };
   }, [refresh, syncNow]);
 
-  const label = !state.online ? "Offline" : state.reason === "authentication-required" ? "Sign in required" : state.syncing ? "Syncing…" : state.failed ? `Online · ${state.failed} failed` : state.pending ? `Online · ${state.pending} pending` : "Online";
-  const tone = !state.online ? "offline" : state.syncing ? "syncing" : state.failed ? "failed" : state.pending ? "syncing" : "online";
+  const label = !state.online
+    ? "Offline"
+    : state.syncing
+      ? "Syncing…"
+      : state.failed
+        ? `Online · ${state.failed} failed`
+        : state.pending
+          ? `Online · ${state.pending} pending`
+          : "Online";
+
+  const tone = !state.online ? "offline" : state.syncing || state.pending ? "syncing" : state.failed ? "failed" : "online";
+  const title = state.online
+    ? state.failed
+      ? `Synchronization completed with ${state.failed} failed operation(s). ${diagnosticText(state.diagnostic)}`
+      : state.pending
+        ? `Synchronization pending. ${diagnosticText(state.diagnostic)}`
+        : "Connection is online. Click to synchronize now."
+    : `Aghaaz is offline. ${diagnosticText(state.diagnostic)}`;
 
   return (
     <button
       type="button"
       className={`connectivity-indicator connectivity-${tone}`}
       onClick={() => void syncNow()}
-      title={state.online ? "Connection is online. Click to synchronize now." : "Aghaaz is offline. Changes are stored locally and will synchronize automatically when the connection returns."}
+      title={title}
       aria-label={label}
     >
       <span className="connectivity-dot" aria-hidden="true" />
       <span>{label}</span>
-      {state.online && state.pending > 0 && <span className="connectivity-count">{state.pending}</span>}
+      {state.online && (state.pending > 0 || state.failed > 0) && (
+        <span className="connectivity-count">{state.failed || state.pending}</span>
+      )}
     </button>
   );
 }
