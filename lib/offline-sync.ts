@@ -106,17 +106,17 @@ export async function checkServerReachability() {
 }
 
 export async function synchronize() {
-  if (!navigator.onLine) return { pushed: 0, pulled: 0, failed: 0, reachable: false };
+  if (!navigator.onLine) return { pushed: 0, pulled: 0, failed: 0, reachable: false, reason: "browser-offline" as const };
   const reachable = await checkServerReachability();
-  if (!reachable) return { pushed: 0, pulled: 0, failed: 0, reachable: false };
-  const syncResult = { pushed: 0, pulled: 0, failed: 0, reachable: true };
+  if (!reachable) return { pushed: 0, pulled: 0, failed: 0, reachable: false, reason: "server-unreachable" as const };
+  const syncResult = { pushed: 0, pulled: 0, failed: 0, reachable: true, reason: "ok" as const };
   const deviceKey = await getDeviceKey();
   const register = await fetch("/api/sync/register", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ deviceKey, name: navigator.userAgent.slice(0, 110) }),
   });
-  if (!register.ok) return { ...syncResult, reachable: register.status !== 0 };
+  if (!register.ok) return { ...syncResult, reachable: true, reason: register.status === 401 || register.status === 403 ? "authentication-required" as const : "register-failed" as const };
 
   const queued = await getQueuedOperations();
   let pushed = 0;
