@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { checkServerReachability, getOfflineState, synchronize } from "@/lib/offline-sync";
 
-type SyncState = { online: boolean; pending: number; failed: number; syncing: boolean; lastSync?: string };
+type SyncState = { online: boolean; pending: number; failed: number; syncing: boolean; reason?: string; lastSync?: string };
 
 export default function ConnectivityIndicator() {
   const [state, setState] = useState<SyncState>({ online: true, pending: 0, failed: 0, syncing: false });
@@ -24,7 +24,12 @@ export default function ConnectivityIndicator() {
     try {
       const result = await synchronize();
       if (!result.reachable) {
-        setState((s) => ({ ...s, online: false, syncing: false }));
+        setState((s) => ({ ...s, online: false, syncing: false, reason: result.reason }));
+        return;
+      }
+      if (result.reason !== "ok") {
+        await refresh();
+        setState((s) => ({ ...s, syncing: false, reason: result.reason }));
         return;
       }
       await refresh();
@@ -52,7 +57,7 @@ export default function ConnectivityIndicator() {
     };
   }, [refresh, syncNow]);
 
-  const label = !state.online ? "Offline" : state.syncing ? "Syncing…" : state.failed ? `Online · ${state.failed} failed` : state.pending ? `Online · ${state.pending} pending` : "Online";
+  const label = !state.online ? "Offline" : state.reason === "authentication-required" ? "Sign in required" : state.syncing ? "Syncing…" : state.failed ? `Online · ${state.failed} failed` : state.pending ? `Online · ${state.pending} pending` : "Online";
   const tone = !state.online ? "offline" : state.syncing ? "syncing" : state.failed ? "failed" : state.pending ? "syncing" : "online";
 
   return (
