@@ -9,6 +9,14 @@ type PendingOperation = {
   clientCreatedAt: string;
 };
 
+type SyncDiagnostic = {
+  at: string;
+  stage: "health" | "register" | "push" | "pull" | "local";
+  reason: string;
+  status?: number;
+  details?: string;
+};
+
 const DB_NAME = "aghaaz-offline";
 const DB_VERSION = 1;
 const OPS_STORE = "operations";
@@ -43,6 +51,60 @@ async function metaSet(key: string, value: unknown) {
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error);
   });
+}
+
+async function setDiagnostic(diagnostic: Omit<SyncDiagnostic, "at">) {
+  await metaSet("lastSyncDiagnostic", { ...diagnostic, at: new Date().toISOString() });
+}
+
+async function readResponseDetail(response: Response) {
+  const contentType = response.headers.get("content-type") || "";
+  const text = await response.text().catch(() => "");
+  if (!text) return "";
+  if (contentType.includes("application/json")) {
+    try {
+      const body = JSON.parse(text) as { error?: unknown; message?: unknown };
+      const message = body.error ?? body.message;
+      return typeof message === "string" ? message : text.slice(0, 300);
+    } catch {
+      return text.slice(0, 300);
+    }
+  }
+  return text.replace(/\s+/g, " ").slice(0, 300);
+}
+
+async function fetchSyncHealth() {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 5000);
+  try {
+    const response = await fetch("/api/sync/health?t=" + Date.now(), {
+      cache: "no-store",
+      headers: { Accept: "application/json", "Cache-Control": "no-cache" },
+      signal: controller.signal,
+    });
+    const contentType = response.headers.get("content-type") || "";
+    if (!response.ok) {
+      const detail = await readResponseDetail(response);
+      return { ok: false, reason: `health-http-${response.status}`, status: response.status, detail };
+    }
+    if (!contentType.includes("application/json")) {
+      const detail = await readResponseDetail(response);
+      return { ok: false, reason: "health-not-json", status: response.status, detail };
+    }
+    const body = await response.json().catch(() => null) as { ok?: boolean; service?: string } | null;
+    if (!body || body.ok !== true || body.service !== "aghaaz-sync") {
+      return { ok: false, reason: "health-invalid-response", status: response.status, detail: JSON.stringify(body).slice(0, 300) };
+    }
+    return { ok: true as const };
+  } catch (error) {
+    return {
+      ok: false as const,
+      reason: error instanceof DOMException && error.name === "AbortError" ? "health-timeout" : "health-network-error",
+      detail: error instanceof Error ? error.message : undefined,
+    };
+  } finally {
+    window.clearTimeout(timeout);
+  }
 }
 
 export async function getDeviceKey() {
@@ -92,40 +154,72 @@ async function removeQueued(keys: string[]) {
 }
 
 export async function checkServerReachability() {
-  if (!navigator.onLine) return false;
-  const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 5000);
-  try {
-    const response = await fetch("/api/sync/health", { cache: "no-store", signal: controller.signal });
-    return response.ok;
-  } catch {
+  if (!navigator.onLine) {
+    await setDiagnostic({ stage: "health", reason: "browser-offline" }).catch(() => {});
     return false;
-  } finally {
-    window.clearTimeout(timeout);
   }
+  const result = await fetchSyncHealth();
+  if (!result.ok) {
+    await setDiagnostic({
+      stage: "health",
+      reason: result.reason,
+      status: result.status,
+      details: result.detail,
+    }).catch(() => {});
+    return false;
+  }
+  return true;
 }
 
 export async function synchronize() {
-  if (!navigator.onLine) return { pushed: 0, pulled: 0, failed: 0, reachable: false, reason: "browser-offline" as const };
-  const reachable = await checkServerReachability();
-  if (!reachable) return { pushed: 0, pulled: 0, failed: 0, reachable: false, reason: "server-unreachable" as const };
-  const syncResult: { pushed: number; pulled: number; failed: number; reachable: boolean; reason: string } = { pushed: 0, pulled: 0, failed: 0, reachable: true, reason: "ok" };
+  if (!navigator.onLine) {
+    await setDiagnostic({ stage: "health", reason: "browser-offline" }).catch(() => {});
+    return { pushed: 0, pulled: 0, failed: 0, reachable: false, reason: "browser-offline" as const };
+  }
+
+  const health = await fetchSyncHealth();
+  if (!health.ok) {
+    await setDiagnostic({
+      stage: "health",
+      reason: health.reason,
+      status: health.status,
+      details: health.detail,
+    }).catch(() => {});
+    return { pushed: 0, pulled: 0, failed: 0, reachable: false, reason: "server-unreachable" as const };
+  }
+
+  const syncResult: { pushed: number; pulled: number; failed: number; reachable: boolean; reason: string } = {
+    pushed: 0,
+    pulled: 0,
+    failed: 0,
+    reachable: true,
+    reason: "ok",
+  };
+
   const deviceKey = await getDeviceKey();
   const register = await fetch("/api/sync/register", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify({ deviceKey, name: navigator.userAgent.slice(0, 110) }),
   });
-  if (!register.ok) return { ...syncResult, reachable: true, reason: register.status === 401 || register.status === 403 ? "authentication-required" as const : "register-failed" as const };
+
+  if (!register.ok) {
+    const detail = await readResponseDetail(register);
+    const reason = register.status === 401 || register.status === 403 ? "authentication-required" : "register-failed";
+    await setDiagnostic({ stage: "register", reason, status: register.status, details: detail }).catch(() => {});
+    return { ...syncResult, reason } as typeof syncResult & { reason: string };
+  }
 
   const queued = await getQueuedOperations();
   let pushed = 0;
+
   if (queued.length) {
     const response = await fetch("/api/sync/push", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({ deviceKey, operations: queued.slice(0, 250) }),
     });
+
     if (response.ok) {
       const result = await response.json();
       const syncResults = [
@@ -136,14 +230,46 @@ export async function synchronize() {
           error: item.error,
         })),
       ];
+
       if (syncResults.length) await metaSet("lastSyncResults", syncResults);
-      await removeQueued([...(result.applied ?? []), ...(result.duplicate ?? []).filter((key: string) => !(result.failed ?? []).some((item: { operationKey: string }) => item.operationKey === key))]);
+
+      await removeQueued([
+        ...(result.applied ?? []),
+        ...(result.duplicate ?? []).filter(
+          (key: string) => !(result.failed ?? []).some((item: { operationKey: string }) => item.operationKey === key),
+        ),
+      ]);
+
       pushed = (result.applied ?? []).length;
       syncResult.pushed = pushed;
       syncResult.failed = (result.failed ?? []).length;
-      if (syncResult.failed > 0) syncResult.reason = "operations-failed";
+
+      if (syncResult.failed > 0) {
+        syncResult.reason = "operations-failed";
+        const firstFailure = (result.failed ?? [])[0] as { operationKey?: string; error?: string } | undefined;
+        await setDiagnostic({
+          stage: "push",
+          reason: "operations-failed",
+          status: response.status,
+          details: firstFailure?.error || `${syncResult.failed} operation(s) failed`,
+        }).catch(() => {});
+      } else {
+        await setDiagnostic({
+          stage: "push",
+          reason: "ok",
+          status: response.status,
+          details: `${pushed} operation(s) applied`,
+        }).catch(() => {});
+      }
     } else {
+      const detail = await readResponseDetail(response);
       syncResult.reason = response.status === 401 || response.status === 403 ? "authentication-required" : "push-failed";
+      await setDiagnostic({
+        stage: "push",
+        reason: syncResult.reason,
+        status: response.status,
+        details: detail,
+      }).catch(() => {});
       if (response.status === 401 || response.status === 403) return syncResult;
     }
   }
@@ -151,18 +277,29 @@ export async function synchronize() {
   const since = await metaGet<string>("lastPullAt");
   const response = await fetch("/api/sync/pull", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify({ deviceKey, since, limit: 250 }),
   });
+
+  if (!response.ok) {
+    const detail = await readResponseDetail(response);
+    syncResult.reason = syncResult.reason === "ok" ? "pull-failed" : syncResult.reason;
+    await setDiagnostic({
+      stage: "pull",
+      reason: "pull-failed",
+      status: response.status,
+      details: detail,
+    }).catch(() => {});
+  }
+
   let pulled = 0;
   if (response.ok) {
     const result = await response.json();
     pulled = (result.operations ?? []).length;
     if (result.serverTime) await metaSet("lastPullAt", result.serverTime);
-    if (pulled) {
-      await metaSet("lastPullBatch", result.operations);
-    }
+    if (pulled) await metaSet("lastPullBatch", result.operations);
   }
+
   syncResult.pulled = pulled;
   return syncResult;
 }
@@ -170,10 +307,15 @@ export async function synchronize() {
 export async function getOfflineState() {
   const queued = await getQueuedOperations();
   const lastResults = await metaGet<Array<{ operationKey: string; operationType: string; error?: string }>>("lastSyncResults") ?? [];
+  const diagnostic = await metaGet<SyncDiagnostic>("lastSyncDiagnostic");
   const failedKeys = new Set(lastResults.filter((item) => item.operationType === "FAILED").map((item) => item.operationKey));
-  return { online: navigator.onLine, pending: queued.length, failed: queued.filter((item) => failedKeys.has(item.operationKey)).length };
+  return {
+    online: navigator.onLine,
+    pending: queued.length,
+    failed: queued.filter((item) => failedKeys.has(item.operationKey)).length,
+    diagnostic,
+  };
 }
-
 
 export async function setOfflineCache<T>(key: string, value: T) {
   await metaSet("cache:" + key, { value, savedAt: new Date().toISOString() });
@@ -194,5 +336,5 @@ export async function getOfflineCache<T>(key: string): Promise<{ value: T; saved
 }
 
 export async function getLastSyncResults<T = { operationKey: string; operationType: string; applicationId?: string; applicationNumber?: string; enquiryNumber?: string }>() {
-  return (await metaGet<T[]>("lastSyncResults")) ?? [];
+  return (await metaGet<T[]>( "lastSyncResults")) ?? [];
 }
