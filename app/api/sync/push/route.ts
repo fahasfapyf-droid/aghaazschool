@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, roleAllowed } from "@/lib/auth";
-import type { UserRole } from "@prisma/client";
+import type { Prisma, UserRole } from "@prisma/client";
 
 const operationSchema = z.object({
   operationKey: z.string().min(8).max(200),
@@ -39,11 +39,11 @@ async function applyOperation(op: z.infer<typeof operationSchema>, userId: strin
     const existing = await tx.application.findFirst({ where: { id: op.entityId, enrollment: { isNot: null } }, select: { id: true, formData: true } });
     if (!existing) throw new Error("STUDENT_NOT_FOUND");
 
-    let formData = existing.formData;
+    let formData: Prisma.InputJsonValue | undefined = existing.formData as Prisma.InputJsonValue;
     if (data.legacy !== undefined) {
       const current = existing.formData && typeof existing.formData === "object" && !Array.isArray(existing.formData) ? existing.formData as Record<string, unknown> : {};
       const currentLegacy = current.legacy && typeof current.legacy === "object" && !Array.isArray(current.legacy) ? current.legacy as Record<string, unknown> : {};
-      formData = { ...current, legacy: { ...currentLegacy, ...data.legacy } };
+      formData = JSON.parse(JSON.stringify({ ...current, legacy: { ...currentLegacy, ...data.legacy } })) as Prisma.InputJsonValue;
     }
 
     await tx.application.update({
