@@ -91,16 +91,32 @@ async function removeQueued(keys: string[]) {
   });
 }
 
+export async function checkServerReachability() {
+  if (!navigator.onLine) return false;
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 5000);
+  try {
+    const response = await fetch("/api/sync/health", { cache: "no-store", signal: controller.signal });
+    return response.ok;
+  } catch {
+    return false;
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
 export async function synchronize() {
-  if (!navigator.onLine) return { pushed: 0, pulled: 0, failed: 0 };
-  const syncResult = { pushed: 0, pulled: 0, failed: 0 };
+  if (!navigator.onLine) return { pushed: 0, pulled: 0, failed: 0, reachable: false };
+  const reachable = await checkServerReachability();
+  if (!reachable) return { pushed: 0, pulled: 0, failed: 0, reachable: false };
+  const syncResult = { pushed: 0, pulled: 0, failed: 0, reachable: true };
   const deviceKey = await getDeviceKey();
   const register = await fetch("/api/sync/register", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ deviceKey, name: navigator.userAgent.slice(0, 110) }),
   });
-  if (!register.ok) return syncResult;
+  if (!register.ok) return { ...syncResult, reachable: register.status !== 0 };
 
   const queued = await getQueuedOperations();
   let pushed = 0;
