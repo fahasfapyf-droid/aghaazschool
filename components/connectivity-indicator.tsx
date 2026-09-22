@@ -33,7 +33,7 @@ export default function ConnectivityIndicator() {
         return;
       }
       await refresh();
-      setState((s) => ({ ...s, syncing: false, lastSync: new Date().toISOString() }));
+      setState((s) => ({ ...s, syncing: false, reason: "ok", lastSync: new Date().toISOString() }));
     } catch {
       await refresh();
       setState((s) => ({ ...s, syncing: false }));
