@@ -8,7 +8,7 @@ export default function OfflineSyncBootstrap() {
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("/sw.js").catch(() => {});
     }
-    const run = () => void synchronize().catch(() => {});
+    const run = () => void synchronize().then((result) => window.dispatchEvent(new CustomEvent("aghaaz:sync-complete", { detail: result }))).catch(() => {});
     run();
     window.addEventListener("online", run);
     const interval = window.setInterval(run, 60_000);
