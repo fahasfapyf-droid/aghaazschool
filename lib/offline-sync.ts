@@ -92,14 +92,15 @@ async function removeQueued(keys: string[]) {
 }
 
 export async function synchronize() {
-  if (!navigator.onLine) return { pushed: 0, pulled: 0 };
+  if (!navigator.onLine) return { pushed: 0, pulled: 0, failed: 0 };
+  const syncResult = { pushed: 0, pulled: 0, failed: 0 };
   const deviceKey = await getDeviceKey();
   const register = await fetch("/api/sync/register", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ deviceKey, name: navigator.userAgent.slice(0, 110) }),
   });
-  if (!register.ok) return { pushed: 0, pulled: 0 };
+  if (!register.ok) return syncResult;
 
   const queued = await getQueuedOperations();
   let pushed = 0;
@@ -114,6 +115,8 @@ export async function synchronize() {
       if (result.results?.length) await metaSet("lastSyncResults", result.results);
       await removeQueued([...(result.applied ?? []), ...(result.duplicate ?? []).filter((key: string) => !(result.failed ?? []).some((item: { operationKey: string }) => item.operationKey === key))]);
       pushed = (result.applied ?? []).length;
+      syncResult.pushed = pushed;
+      syncResult.failed = (result.failed ?? []).length;
     }
   }
 
@@ -132,7 +135,8 @@ export async function synchronize() {
       await metaSet("lastPullBatch", result.operations);
     }
   }
-  return { pushed, pulled };
+  syncResult.pulled = pulled;
+  return syncResult;
 }
 
 export async function getOfflineState() {
@@ -157,4 +161,8 @@ export async function deleteOfflineCache(key: string) {
 export async function getOfflineCache<T>(key: string): Promise<{ value: T; savedAt: string } | null> {
   const cached = await metaGet<{ value: T; savedAt: string }>("cache:" + key);
   return cached ?? null;
+}
+
+export async function getLastSyncResults<T = { operationKey: string; operationType: string; applicationId?: string; applicationNumber?: string; enquiryNumber?: string }>() {
+  return (await metaGet<T[]>("lastSyncResults")) ?? [];
 }
