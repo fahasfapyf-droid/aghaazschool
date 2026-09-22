@@ -301,6 +301,14 @@ export async function synchronize() {
   }
 
   syncResult.pulled = pulled;
+  if (syncResult.reason === "ok") {
+    await setDiagnostic({
+      stage: "pull",
+      reason: "sync-complete",
+      status: response.status,
+      details: `${syncResult.pushed} pushed, ${syncResult.pulled} pulled`,
+    }).catch(() => {});
+  }
   return syncResult;
 }
 
