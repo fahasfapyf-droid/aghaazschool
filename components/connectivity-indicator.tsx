@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { getOfflineState, synchronize } from "@/lib/offline-sync";
+import { checkServerReachability, getOfflineState, synchronize } from "@/lib/offline-sync";
 
 type SyncState = { online: boolean; pending: number; syncing: boolean; lastSync?: string };
 
@@ -9,7 +9,8 @@ export default function ConnectivityIndicator() {
   const [state, setState] = useState<SyncState>({ online: true, pending: 0, syncing: false });
 
   const refresh = useCallback(async () => {
-    const online = navigator.onLine;
+    const browserOnline = navigator.onLine;
+    const online = browserOnline ? await checkServerReachability() : false;
     const current = await getOfflineState().catch(() => ({ online, pending: 0 }));
     setState((s) => ({ ...s, online, pending: current.pending }));
   }, []);
@@ -21,7 +22,11 @@ export default function ConnectivityIndicator() {
     }
     setState((s) => ({ ...s, online: true, syncing: true }));
     try {
-      await synchronize();
+      const result = await synchronize();
+      if (!result.reachable) {
+        setState((s) => ({ ...s, online: false, syncing: false }));
+        return;
+      }
       await refresh();
       setState((s) => ({ ...s, syncing: false, lastSync: new Date().toISOString() }));
     } catch {
