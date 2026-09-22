@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import OfflineSyncBootstrap from "@/components/offline-sync-bootstrap";
 
 export const metadata: Metadata = {
   title: "Aghaaz School Management",
@@ -9,7 +10,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body><OfflineSyncBootstrap />{children}</body>
     </html>
   );
 }
