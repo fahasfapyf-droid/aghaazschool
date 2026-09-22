@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
       },
       include: { enrollment: true, session: true },
       orderBy: { studentName: "asc" },
-      take: 500,
+      take: 5000,
     });
     const ids = students.map(s => s.enrollment?.id).filter(Boolean) as string[];
     const registry = ids.length ? await prisma.$queryRawUnsafe<{ enrollmentId: string; grNumber: string }[]>(`SELECT "enrollmentId","grNumber" FROM "StudentRegistry" WHERE "enrollmentId" = ANY($1::text[])`, ids) : [];
