@@ -91,6 +91,7 @@ export async function POST(request: Request) {
     if (existing) {
       duplicate.push(op.operationKey);
       if (existing.status === "APPLIED") applied.push(op.operationKey);
+      if (existing.status === "FAILED") failed.push({ operationKey: op.operationKey, error: existing.errorMessage || existing.errorCode || "SYNC_OPERATION_FAILED" });
       continue;
     }
 
