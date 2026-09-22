@@ -70,7 +70,7 @@ export async function queueOfflineOperation(input: Omit<PendingOperation, "opera
   return operation.operationKey;
 }
 
-async function getQueuedOperations(): Promise<PendingOperation[]> {
+export async function getQueuedOperations(): Promise<PendingOperation[]> {
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const request = db.transaction(OPS_STORE, "readonly").objectStore(OPS_STORE).getAll();
@@ -157,7 +157,9 @@ export async function synchronize() {
 
 export async function getOfflineState() {
   const queued = await getQueuedOperations();
-  return { online: navigator.onLine, pending: queued.length };
+  const lastResults = await metaGet<Array<{ operationKey: string; operationType: string; error?: string }>>("lastSyncResults") ?? [];
+  const failedKeys = new Set(lastResults.filter((item) => item.operationType === "FAILED").map((item) => item.operationKey));
+  return { online: navigator.onLine, pending: queued.length, failed: queued.filter((item) => failedKeys.has(item.operationKey)).length };
 }
 
 
