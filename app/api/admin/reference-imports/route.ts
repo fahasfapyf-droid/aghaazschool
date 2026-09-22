@@ -248,19 +248,23 @@ async function findSession(sessionName: string) {
   return prisma.academicSession.findUnique({ where: { name: sessionName } });
 }
 
-function parseEnrollmentWorkbook(buffer: ArrayBuffer, fileName: string): { sessionName: string; sourceSheet: string; rows: Record<string, unknown>[] } {
+function parseEnrollmentWorkbook(buffer: ArrayBuffer, fileName: string, requestedSheetName?: string): { sessionName: string; sourceSheet: string; availableSheets: string[]; rows: Record<string, unknown>[] } {
   const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
   const sessionName = detectSessionName(fileName, workbook);
   const preferredSheet = workbook.SheetNames.find(name => canonicalHeader(name) === canonicalHeader(SOURCE_SHEET));
   const generalRegisterSheet = workbook.SheetNames.find(name => ["gr", "generalregister", "generalregistersheet"].includes(canonicalHeader(name)));
-  const sheetName = preferredSheet || generalRegisterSheet || (workbook.SheetNames.length === 1 ? workbook.SheetNames[0] : null);
-  if (!sheetName) throw new Error(`The workbook must contain a G.R / General Register sheet. Available sheets: ${workbook.SheetNames.join(", ")}`);
+  const requested = clean(requestedSheetName);
+  const sheetName = requested
+    ? workbook.SheetNames.find(name => name === requested) || null
+    : preferredSheet || generalRegisterSheet || (workbook.SheetNames.length === 1 ? workbook.SheetNames[0] : null);
+  if (!sheetName) throw new Error(`Select the exact G.R / General Register sheet. Available sheets: ${workbook.SheetNames.join(", ")}`);
   const sheet = workbook.Sheets[sheetName];
   const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: null, raw: true })
     .map((row, index) => ({ ...row, __rowNumber: index + 2 }));
   return {
     sessionName,
     sourceSheet: sheetName,
+    availableSheets: workbook.SheetNames,
     rows: canonicalizeEnrollmentRows(rawRows),
   };
 }
@@ -384,17 +388,78 @@ export async function POST(request: NextRequest) {
     const user = await authorize(request);
     const contentType = request.headers.get("content-type") || "";
 
+    if (contentType.includes("application/json")) {
+      const body = await request.json().catch(() => null);
+      if (body?.action === "reset-student-data") {
+        if (body.confirmation !== "RESET STUDENT DATA") {
+          return NextResponse.json({ error: "Confirmation phrase does not match." }, { status: 400 });
+        }
+        const result = await prisma.$transaction(async tx => {
+          const enrollments = await tx.enrollment.findMany({
+            select: { id: true, applicationId: true, studentIdentityId: true },
+          });
+          const enrollmentIds = enrollments.map(row => row.id);
+          const applicationIds = enrollments.map(row => row.applicationId);
+          const identityIds = [...new Set(enrollments.map(row => row.studentIdentityId))];
+
+          if (enrollmentIds.length) {
+            await tx.$executeRawUnsafe(
+              `DELETE FROM "ReportCardRelease" WHERE "studentId" = ANY($1::text[])`,
+              enrollmentIds,
+            );
+            await tx.$executeRawUnsafe(
+              `DELETE FROM "FamilyAccountStudent" WHERE "enrollmentId" = ANY($1::text[])`,
+              enrollmentIds,
+            );
+            await tx.$executeRawUnsafe(
+              `DELETE FROM "StudentRegistry" WHERE "enrollmentId" = ANY($1::text[])`,
+              enrollmentIds,
+            );
+            await tx.enrollment.deleteMany({ where: { id: { in: enrollmentIds } } });
+          }
+
+          if (applicationIds.length) {
+            await tx.application.deleteMany({ where: { id: { in: applicationIds } } });
+          }
+
+          if (identityIds.length) {
+            await tx.studentIdentity.deleteMany({ where: { id: { in: identityIds } } });
+          }
+
+          return {
+            enrollments: enrollmentIds.length,
+            applications: applicationIds.length,
+            identities: identityIds.length,
+          };
+        }, { maxWait: 10000, timeout: 120000 });
+
+        const context = requestAuditContext(request);
+        await writeAuditLog({
+          userId: user.id,
+          action: "RESET_STUDENT_ENROLLMENT_DATA",
+          entityType: "Enrollment",
+          metadata: { ...result, scope: "student/enrollment data only" },
+          context,
+        });
+        return NextResponse.json({
+          ...result,
+          message: "Student and enrollment data was cleared. School configuration, staff, users, grades, sections, and unrelated finance data were preserved.",
+        });
+      }
+    }
+
     if (contentType.includes("multipart/form-data")) {
       const form = await request.formData();
       const file = form.get("file");
       const mode = clean(String(form.get("mode") || "preview"));
       const source = clean(String(form.get("source") || "enrollment"));
+      const requestedSheetName = clean(String(form.get("sheetName") || ""));
       if (source !== "enrollment") return NextResponse.json({ error: "Excel import currently supports the enrollment workbook." }, { status: 400 });
       if (!(file instanceof File)) return NextResponse.json({ error: "Upload an enrollment workbook." }, { status: 400 });
       if (!file.name.toLowerCase().endsWith(".xlsx")) return NextResponse.json({ error: "Only .xlsx workbooks are supported." }, { status: 400 });
       if (file.size > 10 * 1024 * 1024) return NextResponse.json({ error: "Workbook is too large." }, { status: 400 });
 
-      const parsedWorkbook = parseEnrollmentWorkbook(await file.arrayBuffer(), file.name);
+      const parsedWorkbook = parseEnrollmentWorkbook(await file.arrayBuffer(), file.name, requestedSheetName);
       const { session, grades } = await getEnrollmentContext(parsedWorkbook.sessionName);
       const prepared = prepareEnrollmentRows(parsedWorkbook.rows, grades);
       const valid = prepared.filter(row => row.valid);
@@ -407,6 +472,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({
           source,
           sourceSheet: parsedWorkbook.sourceSheet,
+          availableSheets: parsedWorkbook.availableSheets,
           session: { id: session?.id || null, name: parsedWorkbook.sessionName, exists: Boolean(session) },
           totalSourceRows: prepared.length,
           eligibleRows: valid.length,
