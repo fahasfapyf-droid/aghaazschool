@@ -1,0 +1,140 @@
+"use client";
+
+type PendingOperation = {
+  operationKey: string;
+  entityType: string;
+  entityId: string;
+  operationType: string;
+  payload: unknown;
+  clientCreatedAt: string;
+};
+
+const DB_NAME = "aghaaz-offline";
+const DB_VERSION = 1;
+const OPS_STORE = "operations";
+const META_STORE = "meta";
+
+function openDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(OPS_STORE)) db.createObjectStore(OPS_STORE, { keyPath: "operationKey" });
+      if (!db.objectStoreNames.contains(META_STORE)) db.createObjectStore(META_STORE, { keyPath: "key" });
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function metaGet<T>(key: string): Promise<T | undefined> {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const request = db.transaction(META_STORE, "readonly").objectStore(META_STORE).get(key);
+    request.onsuccess = () => resolve(request.result?.value as T | undefined);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function metaSet(key: string, value: unknown) {
+  const db = await openDb();
+  return new Promise<void>((resolve, reject) => {
+    const request = db.transaction(META_STORE, "readwrite").objectStore(META_STORE).put({ key, value });
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+}
+
+export async function getDeviceKey() {
+  let key = await metaGet<string>("deviceKey");
+  if (!key) {
+    key = crypto.randomUUID() + crypto.randomUUID();
+    await metaSet("deviceKey", key);
+  }
+  return key;
+}
+
+export async function queueOfflineOperation(input: Omit<PendingOperation, "operationKey" | "clientCreatedAt">) {
+  const operation: PendingOperation = {
+    ...input,
+    operationKey: crypto.randomUUID(),
+    clientCreatedAt: new Date().toISOString(),
+  };
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const request = db.transaction(OPS_STORE, "readwrite").objectStore(OPS_STORE).put(operation);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+  if (navigator.onLine) void synchronize();
+  return operation.operationKey;
+}
+
+async function getQueuedOperations(): Promise<PendingOperation[]> {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const request = db.transaction(OPS_STORE, "readonly").objectStore(OPS_STORE).getAll();
+    request.onsuccess = () => resolve(request.result as PendingOperation[]);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function removeQueued(keys: string[]) {
+  if (!keys.length) return;
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(OPS_STORE, "readwrite");
+    const store = tx.objectStore(OPS_STORE);
+    keys.forEach((key) => store.delete(key));
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function synchronize() {
+  if (!navigator.onLine) return { pushed: 0, pulled: 0 };
+  const deviceKey = await getDeviceKey();
+  const register = await fetch("/api/sync/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ deviceKey, name: navigator.userAgent.slice(0, 110) }),
+  });
+  if (!register.ok) return { pushed: 0, pulled: 0 };
+
+  const queued = await getQueuedOperations();
+  let pushed = 0;
+  if (queued.length) {
+    const response = await fetch("/api/sync/push", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ deviceKey, operations: queued.slice(0, 250) }),
+    });
+    if (response.ok) {
+      const result = await response.json();
+      await removeQueued([...(result.accepted ?? []), ...(result.duplicate ?? [])]);
+      pushed = (result.accepted ?? []).length;
+    }
+  }
+
+  const since = await metaGet<string>("lastPullAt");
+  const response = await fetch("/api/sync/pull", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ deviceKey, since, limit: 250 }),
+  });
+  let pulled = 0;
+  if (response.ok) {
+    const result = await response.json();
+    pulled = (result.operations ?? []).length;
+    if (result.serverTime) await metaSet("lastPullAt", result.serverTime);
+    if (pulled) {
+      await metaSet("lastPullBatch", result.operations);
+    }
+  }
+  return { pushed, pulled };
+}
+
+export async function getOfflineState() {
+  const queued = await getQueuedOperations();
+  return { online: navigator.onLine, pending: queued.length };
+}
