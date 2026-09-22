@@ -88,7 +88,7 @@ async function applyOperation(op: z.infer<typeof operationSchema>, userId: strin
       const session = await tx.academicSession.upsert({
         where: { name: data.sessionName },
         update: {},
-        create: { name: data.sessionName, startDate: new Date(`${year}-08-01`), endDate: new Date(${year + 1}-07-31) },
+        create: { name: data.sessionName, startDate: new Date(`${year}-08-01`), endDate: new Date(`${year + 1}-07-31`) },
       });
 
       const enquiry = await tx.admissionEnquiry.create({
