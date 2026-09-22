@@ -3,16 +3,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { checkServerReachability, getOfflineState, synchronize } from "@/lib/offline-sync";
 
-type SyncState = { online: boolean; pending: number; syncing: boolean; lastSync?: string };
+type SyncState = { online: boolean; pending: number; failed: number; syncing: boolean; lastSync?: string };
 
 export default function ConnectivityIndicator() {
-  const [state, setState] = useState<SyncState>({ online: true, pending: 0, syncing: false });
+  const [state, setState] = useState<SyncState>({ online: true, pending: 0, failed: 0, syncing: false });
 
   const refresh = useCallback(async () => {
     const browserOnline = navigator.onLine;
     const online = browserOnline ? await checkServerReachability() : false;
-    const current = await getOfflineState().catch(() => ({ online, pending: 0 }));
-    setState((s) => ({ ...s, online, pending: current.pending }));
+    const current = await getOfflineState().catch(() => ({ online, pending: 0, failed: 0 }));
+    setState((s) => ({ ...s, online, pending: current.pending, failed: current.failed ?? 0 }));
   }, []);
 
   const syncNow = useCallback(async () => {
@@ -52,8 +52,8 @@ export default function ConnectivityIndicator() {
     };
   }, [refresh, syncNow]);
 
-  const label = !state.online ? "Offline" : state.syncing ? "Syncing…" : state.pending ? `Online · ${state.pending} pending` : "Online";
-  const tone = !state.online ? "offline" : state.syncing || state.pending ? "syncing" : "online";
+  const label = !state.online ? "Offline" : state.syncing ? "Syncing…" : state.failed ? `Online · ${state.failed} failed` : state.pending ? `Online · ${state.pending} pending` : "Online";
+  const tone = !state.online ? "offline" : state.syncing ? "syncing" : state.failed ? "failed" : state.pending ? "syncing" : "online";
 
   return (
     <button
