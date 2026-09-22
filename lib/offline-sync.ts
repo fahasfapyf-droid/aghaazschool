@@ -111,8 +111,8 @@ export async function synchronize() {
     });
     if (response.ok) {
       const result = await response.json();
-      await removeQueued([...(result.accepted ?? []), ...(result.duplicate ?? [])]);
-      pushed = (result.accepted ?? []).length;
+      await removeQueued([...(result.applied ?? []), ...(result.duplicate ?? []).filter((key: string) => !(result.failed ?? []).some((item: { operationKey: string }) => item.operationKey === key))]);
+      pushed = (result.applied ?? []).length;
     }
   }
 
