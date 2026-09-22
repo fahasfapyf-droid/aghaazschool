@@ -403,6 +403,10 @@ export async function POST(request: NextRequest) {
           const identityIds = [...new Set(enrollments.map(row => row.studentIdentityId))];
 
           if (enrollmentIds.length) {
+            // The production database intentionally uses RESTRICT for a few
+            // enrollment child records (financial/results/history retention). This
+            // reset is explicitly a clean student-data reset, so remove those
+            // student-specific records first, then remove the enrollment itself.
             await tx.$executeRawUnsafe(
               `DELETE FROM "ReportCardRelease" WHERE "studentId" = ANY($1::text[])`,
               enrollmentIds,
@@ -413,6 +417,18 @@ export async function POST(request: NextRequest) {
             );
             await tx.$executeRawUnsafe(
               `DELETE FROM "StudentRegistry" WHERE "enrollmentId" = ANY($1::text[])`,
+              enrollmentIds,
+            );
+            await tx.$executeRawUnsafe(
+              `DELETE FROM "EnrollmentHistory" WHERE "enrollmentId" = ANY($1::text[])`,
+              enrollmentIds,
+            );
+            await tx.$executeRawUnsafe(
+              `DELETE FROM "Result" WHERE "studentId" = ANY($1::text[])`,
+              enrollmentIds,
+            );
+            await tx.$executeRawUnsafe(
+              `DELETE FROM "FeeInvoice" WHERE "studentId" = ANY($1::text[])`,
               enrollmentIds,
             );
             await tx.enrollment.deleteMany({ where: { id: { in: enrollmentIds } } });
