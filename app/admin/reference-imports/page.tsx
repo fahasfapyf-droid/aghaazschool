@@ -22,7 +22,7 @@ type EnrollmentPreview = {
 };
 
 const targets = {
-  enrollment: ["GR","Family no.","Ethnic","Name","Father Name","Cnic","Mother Name","Cnic.1","D.O.B","G","Housing","Income","Father profession","mother Profession","Cell no.","Cell no..1","D.O.A","Class","Shift","Status","current Class","Result","Status.1","TRX no.","mode","date","Amount Dispursed"],
+  enrollment: ["GR","Family no.","Ethnic","Name","Father Name","Cnic","Mother Name","Cnic.1","D.O.B","G","Housing","Income","Father profession","mother Profession","Cell no.","Cell no..1","D.O.A","Class","Shift","Status","current Class","Result"],
   staff: ["Employee Name","Father / Husband Name","Gender","DOB","Employee CNIC","Email","Date of Appointment","Designation","Academic Qualification","Professional Qualification","Training / Courses","Monthly Salary","Contact No","Emergency Cont No","Status"],
 };
 
