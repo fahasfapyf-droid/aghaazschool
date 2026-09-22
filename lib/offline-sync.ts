@@ -138,3 +138,13 @@ export async function getOfflineState() {
   const queued = await getQueuedOperations();
   return { online: navigator.onLine, pending: queued.length };
 }
+
+
+export async function setOfflineCache<T>(key: string, value: T) {
+  await metaSet("cache:" + key, { value, savedAt: new Date().toISOString() });
+}
+
+export async function getOfflineCache<T>(key: string): Promise<{ value: T; savedAt: string } | null> {
+  const cached = await metaGet<{ value: T; savedAt: string }>("cache:" + key);
+  return cached ?? null;
+}
