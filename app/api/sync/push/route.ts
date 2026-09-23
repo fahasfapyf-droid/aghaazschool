@@ -191,7 +191,6 @@ export async function POST(request: Request) {
           payload: op.payload as object,
           clientCreatedAt: new Date(op.clientCreatedAt),
           status: "PENDING",
-          lastAttemptAt: new Date(),
         },
       });
     } else {
