@@ -1,5 +1,4 @@
 /* Aghaaz offline synchronization client. */
-/* Aghaaz offline synchronization client. */
 "use client";
 
 type SyncStatus = "QUEUED" | "IN_FLIGHT" | "FAILED_RETRYABLE" | "FAILED_TERMINAL";
@@ -28,6 +27,11 @@ const DB_NAME = "aghaaz-offline";
 const DB_VERSION = 2;
 const OPS_STORE = "operations";
 const META_STORE = "meta";
+
+function emitSyncEvent(name: "aghaaz:offline-queue-changed" | "aghaaz:sync-complete", detail?: unknown) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(name, { detail }));
+}
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -136,6 +140,7 @@ export async function queueOfflineOperation(input: Omit<PendingOperation, "opera
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error);
   });
+  emitSyncEvent("aghaaz:offline-queue-changed", { operationKey: operation.operationKey });
   if (navigator.onLine) void synchronize();
   return operation.operationKey;
 }
@@ -393,6 +398,7 @@ async function synchronizeInternal() {
       details: `${syncResult.pushed} pushed, ${syncResult.pulled} pulled`,
     }).catch(() => {});
   }
+  emitSyncEvent("aghaaz:sync-complete", syncResult);
   return syncResult;
 }
 
