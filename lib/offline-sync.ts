@@ -331,6 +331,7 @@ async function synchronizeInternal() {
         (key) => !failedResults.some((item) => item.operationKey === key),
       ),
     ]);
+    if (syncResults.length) await metaSet("lastSyncResults", syncResults);
 
     pushed = appliedKeys.length;
     syncResult.pushed = pushed;
