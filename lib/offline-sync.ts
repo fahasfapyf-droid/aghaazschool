@@ -214,63 +214,88 @@ async function synchronizeInternal() {
   let pushed = 0;
 
   if (queued.length) {
-    const response = await fetch("/api/sync/push", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ deviceKey, operations: queued.slice(0, 250) }),
-    });
+    const appliedKeys: string[] = [];
+    const duplicateKeys: string[] = [];
+    const failedResults: Array<{ operationKey: string; operationType: string; error: string }> = [];
+    const successfulResults: Array<Record<string, unknown>> = [];
 
-    if (response.ok) {
-      const result = await response.json();
-      const syncResults = [
-        ...(result.results ?? []),
-        ...((result.failed ?? []) as Array<{ operationKey: string; error: string }>).map((item) => ({
-          operationKey: item.operationKey,
+    for (const operation of queued.slice(0, 250)) {
+      try {
+        const response = await fetch("/api/sync/push", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({ deviceKey, operations: [operation] }),
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          appliedKeys.push(...(result.applied ?? []));
+          duplicateKeys.push(...(result.duplicate ?? []));
+
+          if (result.results?.length) successfulResults.push(...result.results);
+
+          if (result.failed?.length) {
+            failedResults.push(
+              ...result.failed.map((item: { operationKey: string; error: string }) => ({
+                operationKey: item.operationKey,
+                operationType: "FAILED",
+                error: item.error,
+              })),
+            );
+          }
+        } else {
+          const detail = await readResponseDetail(response);
+          const error = detail || `HTTP ${response.status}`;
+          failedResults.push({
+            operationKey: operation.operationKey,
+            operationType: "FAILED",
+            error,
+          });
+          syncResult.reason =
+            response.status === 401 || response.status === 403
+              ? "authentication-required"
+              : "push-failed";
+        }
+      } catch (error) {
+        failedResults.push({
+          operationKey: operation.operationKey,
           operationType: "FAILED",
-          error: item.error,
-        })),
-      ];
-
-      if (syncResults.length) await metaSet("lastSyncResults", syncResults);
-
-      await removeQueued([
-        ...(result.applied ?? []),
-        ...(result.duplicate ?? []).filter(
-          (key: string) => !(result.failed ?? []).some((item: { operationKey: string }) => item.operationKey === key),
-        ),
-      ]);
-
-      pushed = (result.applied ?? []).length;
-      syncResult.pushed = pushed;
-      syncResult.failed = (result.failed ?? []).length;
-
-      if (syncResult.failed > 0) {
-        syncResult.reason = "operations-failed";
-        const firstFailure = (result.failed ?? [])[0] as { operationKey?: string; error?: string } | undefined;
-        await setDiagnostic({
-          stage: "push",
-          reason: "operations-failed",
-          status: response.status,
-          details: firstFailure?.error || `${syncResult.failed} operation(s) failed`,
-        }).catch(() => {});
-      } else {
-        await setDiagnostic({
-          stage: "push",
-          reason: "ok",
-          status: response.status,
-          details: `${pushed} operation(s) applied`,
-        }).catch(() => {});
+          error: error instanceof Error ? error.message : "SYNC_PUSH_NETWORK_ERROR",
+        });
+        syncResult.reason = "push-failed";
       }
-    } else {
-      const detail = await readResponseDetail(response);
-      syncResult.reason = response.status === 401 || response.status === 403 ? "authentication-required" : "push-failed";
+    }
+
+    const syncResults = [...successfulResults, ...failedResults];
+    if (syncResults.length) await metaSet("lastSyncResults", syncResults);
+
+    await removeQueued([
+      ...appliedKeys,
+      ...duplicateKeys.filter(
+        (key) => !failedResults.some((item) => item.operationKey === key),
+      ),
+    ]);
+
+    pushed = appliedKeys.length;
+    syncResult.pushed = pushed;
+    syncResult.failed = failedResults.length;
+
+    if (syncResult.failed > 0) {
+      syncResult.reason = syncResult.reason === "authentication-required"
+        ? syncResult.reason
+        : "operations-failed";
+      const firstFailure = failedResults[0];
       await setDiagnostic({
         stage: "push",
         reason: syncResult.reason,
-        status: response.status,
-        details: detail,
+        details: firstFailure?.error || `${syncResult.failed} operation(s) failed`,
       }).catch(() => {});
-      if (response.status === 401 || response.status === 403) return syncResult;
+    } else {
+      await setDiagnostic({
+        stage: "push",
+        reason: "ok",
+        details: `${pushed} operation(s) applied`,
+      }).catch(() => {});
     }
   }
 
