@@ -262,7 +262,7 @@ export async function POST(request: Request) {
       }, { maxWait: 5000, timeout: 120000, isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
       applied.push(op.operationKey);
-      if (result.result && "applicationId" in result.result) results.push({ operationKey: op.operationKey, ...result.result });
+      if (result.result && "applicationId" in result.result) results.push({ operationKey: op.operationKey, operationType: op.operationType, ...result.result });
     } catch (error) {
       if ((error as { code?: string }).code === "P2002" && op.operationType === "CREATE_ADMISSION") {
         const existingApplication = await prisma.application.findUnique({ where: { syncOperationKey: op.operationKey }, select: { id: true, applicationNumber: true, enquiry: { select: { enquiryNumber: true } } } });
