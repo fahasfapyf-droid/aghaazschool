@@ -99,6 +99,22 @@ async function applyOperation(tx: Prisma.TransactionClient, op: z.infer<typeof o
     });
     if (existingApplication) return { applicationId: existingApplication.id, applicationNumber: existingApplication.applicationNumber, enquiryNumber: existingApplication.enquiry?.enquiryNumber };
 
+    const legacyAudit = await tx.auditLog.findFirst({
+      where: {
+        action: "ADMISSION_APPLICATION_CREATED_OFFLINE_SYNC",
+        metadata: { path: ["operationKey"], equals: op.operationKey },
+      },
+      select: { entityId: true },
+      orderBy: { createdAt: "desc" },
+    });
+    if (legacyAudit?.entityId) {
+      const legacyApplication = await tx.application.findUnique({
+        where: { id: legacyAudit.entityId },
+        select: { id: true, applicationNumber: true, enquiry: { select: { enquiryNumber: true } } },
+      });
+      if (legacyApplication) return { applicationId: legacyApplication.id, applicationNumber: legacyApplication.applicationNumber, enquiryNumber: legacyApplication.enquiry?.enquiryNumber };
+    }
+
     const existingEnquiry = await tx.admissionEnquiry.findUnique({ where: { syncOperationKey: op.operationKey }, select: { id: true, enquiryNumber: true } });
     if (existingEnquiry) {
       const existingByEnquiry = await tx.application.findFirst({ where: { enquiryId: existingEnquiry.id }, select: { id: true, applicationNumber: true } });
