@@ -8,7 +8,7 @@ import { admissionCreateSchema, applicationNumber, enquiryNumber } from "@/lib/a
 const MAX_RETRY_ATTEMPTS = 5;
 
 function classifyFailure(message: string): "FAILED_TERMINAL" | "FAILED_RETRYABLE" {
-  if (message.startsWith("INVALID_ADMISSION_OPERATION") || message === "INVALID_DATE_OF_BIRTH" || message === "UNSUPPORTED_ENTITY_TYPE" || message === "UNSUPPORTED_SYNC_OPERATION" || message === "STUDENT_NOT_FOUND") return "FAILED_TERMINAL";
+  if (message.startsWith("INVALID_ADMISSION_OPERATION") || message === "INVALID_DATE_OF_BIRTH" || message === "UNSUPPORTED_ENTITY_TYPE" || message === "UNSUPPORTED_SYNC_OPERATION" || message === "STUDENT_NOT_FOUND" || message === "APPLICATION_NOT_FOUND") return "FAILED_TERMINAL";
   return "FAILED_RETRYABLE";
 }
 
@@ -80,6 +80,78 @@ async function applyOperation(tx: Prisma.TransactionClient, op: z.infer<typeof o
     }
 
     return { applicationId: op.entityId, operationType: op.operationType };
+  }
+
+  if (op.operationType === "UPDATE_ADMISSION_APPLICATION") {
+    const parsed = admissionCreateSchema.safeParse(op.payload);
+    if (!parsed.success) {
+      const fields = Object.keys(parsed.error.flatten().fieldErrors);
+      throw new Error(`INVALID_ADMISSION_OPERATION${fields.length ? `:${fields.join(",")}` : ""}`);
+    }
+
+    const data = parsed.data;
+    const dateOfBirth = data.dateOfBirth ? new Date(data.dateOfBirth) : null;
+    if (dateOfBirth && Number.isNaN(dateOfBirth.getTime())) throw new Error("INVALID_DATE_OF_BIRTH");
+
+    const existing = await tx.application.findUnique({
+      where: { id: op.entityId },
+      select: { id: true, applicationNumber: true, enquiryId: true },
+    });
+    if (!existing) throw new Error("APPLICATION_NOT_FOUND");
+
+    const year = new Date().getFullYear();
+    const session = await tx.academicSession.upsert({
+      where: { name: data.sessionName },
+      update: {},
+      create: { name: data.sessionName, startDate: new Date(`${year}-08-01`), endDate: new Date(`${year + 1}-07-31`) },
+    });
+
+    const updated = await tx.application.update({
+      where: { id: op.entityId },
+      data: {
+        studentName: data.studentName,
+        dateOfBirth,
+        gender: data.gender,
+        guardianName: data.guardianName,
+        guardianPhone: data.guardianPhone,
+        guardianEmail: data.guardianEmail || null,
+        desiredClass: data.desiredClass,
+        previousSchool: data.previousSchool || null,
+        sessionId: session.id,
+        remarks: data.remarks || null,
+        photoDataUrl: data.photoDataUrl || null,
+        formData: data.formData ? JSON.parse(JSON.stringify(data.formData)) : undefined,
+      },
+      select: { id: true, applicationNumber: true },
+    });
+
+    if (existing.enquiryId) {
+      await tx.admissionEnquiry.update({
+        where: { id: existing.enquiryId },
+        data: {
+          studentName: data.studentName,
+          dateOfBirth,
+          gender: data.gender,
+          guardianName: data.guardianName,
+          guardianPhone: data.guardianPhone,
+          guardianEmail: data.guardianEmail || null,
+          desiredClass: data.desiredClass,
+          notes: data.remarks || null,
+        },
+      });
+    }
+
+    await tx.auditLog.create({
+      data: {
+        userId,
+        action: "ADMISSION_APPLICATION_UPDATED_OFFLINE_SYNC",
+        entityType: "Application",
+        entityId: updated.id,
+        metadata: { operationKey: op.operationKey, applicationNumber: updated.applicationNumber, localEntityId: op.entityId, clientCreatedAt: op.clientCreatedAt },
+      },
+    });
+
+    return { applicationId: updated.id, applicationNumber: updated.applicationNumber, operationType: op.operationType };
   }
 
   if (op.operationType === "CREATE_ADMISSION") {
