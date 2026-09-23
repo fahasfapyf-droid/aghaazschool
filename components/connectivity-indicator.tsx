@@ -95,12 +95,15 @@ export default function ConnectivityIndicator() {
     const onSync = () => void refresh();
     window.addEventListener("online", onOnline);
     window.addEventListener("offline", onOffline);
+    const onQueueChanged = () => void refresh();
     window.addEventListener("aghaaz:sync-complete", onSync);
+    window.addEventListener("aghaaz:offline-queue-changed", onQueueChanged);
     const timer = window.setInterval(() => void refresh(), 5000);
     return () => {
       window.removeEventListener("online", onOnline);
       window.removeEventListener("offline", onOffline);
       window.removeEventListener("aghaaz:sync-complete", onSync);
+      window.removeEventListener("aghaaz:offline-queue-changed", onQueueChanged);
       window.clearInterval(timer);
     };
   }, [refresh, syncNow]);
