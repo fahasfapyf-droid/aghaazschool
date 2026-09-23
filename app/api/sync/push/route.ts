@@ -77,7 +77,10 @@ async function applyOperation(op: z.infer<typeof operationSchema>, userId: strin
 
   if (op.operationType === "CREATE_ADMISSION") {
     const parsed = admissionCreateSchema.safeParse(op.payload);
-    if (!parsed.success) {\n      const fields = Object.keys(parsed.error.flatten().fieldErrors);\n      throw new Error(`INVALID_ADMISSION_OPERATION${fields.length ? `:${fields.join(",")}` : ""}`);\n    }
+    if (!parsed.success) {
+      const fields = Object.keys(parsed.error.flatten().fieldErrors);
+      throw new Error(`INVALID_ADMISSION_OPERATION${fields.length ? `:${fields.join(",")}` : ""}`);
+    }
 
     const data = parsed.data;
     const dateOfBirth = data.dateOfBirth ? new Date(data.dateOfBirth) : undefined;
