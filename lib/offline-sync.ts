@@ -1,5 +1,7 @@
 "use client";
 
+type SyncStatus = "QUEUED" | "IN_FLIGHT" | "FAILED_RETRYABLE" | "FAILED_TERMINAL";
+
 type PendingOperation = {
   operationKey: string;
   entityType: string;
@@ -7,6 +9,9 @@ type PendingOperation = {
   operationType: string;
   payload: unknown;
   clientCreatedAt: string;
+  syncStatus?: SyncStatus;
+  failureCode?: string;
+  failureMessage?: string;
 };
 
 type SyncDiagnostic = {
@@ -18,7 +23,7 @@ type SyncDiagnostic = {
 };
 
 const DB_NAME = "aghaaz-offline";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const OPS_STORE = "operations";
 const META_STORE = "meta";
 
@@ -123,6 +128,7 @@ export async function queueOfflineOperation(input: Omit<PendingOperation, "opera
     clientCreatedAt: new Date().toISOString(),
   };
   const db = await openDb();
+  operation.syncStatus = "QUEUED";
   await new Promise<void>((resolve, reject) => {
     const request = db.transaction(OPS_STORE, "readwrite").objectStore(OPS_STORE).put(operation);
     request.onsuccess = () => resolve();
@@ -151,6 +157,52 @@ async function removeQueued(keys: string[]) {
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
+}
+async function updateQueuedOperation(operationKey: string, patch: Partial<PendingOperation>) {
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(OPS_STORE, "readwrite");
+    const store = tx.objectStore(OPS_STORE);
+    const request = store.get(operationKey);
+    request.onsuccess = () => {
+      const current = request.result as PendingOperation | undefined;
+      if (!current) { resolve(); return; }
+      store.put({ ...current, ...patch });
+    };
+    request.onerror = () => reject(request.error);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function getFailedOfflineOperations() {
+  const queued = await getQueuedOperations();
+  return queued.filter((operation) => operation.syncStatus === "FAILED_TERMINAL" || operation.syncStatus === "FAILED_RETRYABLE" || Boolean(operation.failureMessage));
+}
+
+export async function getOfflineOperation(operationKey: string) {
+  const db = await openDb();
+  return new Promise<PendingOperation | null>((resolve, reject) => {
+    const request = db.transaction(OPS_STORE, "readonly").objectStore(OPS_STORE).get(operationKey);
+    request.onsuccess = () => resolve((request.result as PendingOperation | undefined) ?? null);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+export async function discardOfflineOperation(operationKey: string) {
+  await removeQueued([operationKey]);
+}
+
+export async function retryOfflineOperation(operationKey: string, payload?: unknown) {
+  const operation = await getOfflineOperation(operationKey);
+  if (!operation) throw new Error("OFFLINE_OPERATION_NOT_FOUND");
+  await updateQueuedOperation(operationKey, {
+    ...(payload === undefined ? {} : { payload }),
+    syncStatus: "QUEUED",
+    failureCode: undefined,
+    failureMessage: undefined,
+  });
+  void synchronize();
 }
 
 export async function checkServerReachability() {
@@ -219,7 +271,8 @@ async function synchronizeInternal() {
     const failedResults: Array<{ operationKey: string; operationType: string; error: string }> = [];
     const successfulResults: Array<Record<string, unknown>> = [];
 
-    for (const operation of queued.slice(0, 250)) {
+    for (const operation of queued.filter((item) => item.syncStatus !== "FAILED_TERMINAL").slice(0, 250)) {
+      await updateQueuedOperation(operation.operationKey, { syncStatus: "IN_FLIGHT" }).catch(() => {});
       try {
         const response = await fetch("/api/sync/push", {
           method: "POST",
@@ -235,33 +288,26 @@ async function synchronizeInternal() {
           if (result.results?.length) successfulResults.push(...result.results);
 
           if (result.failed?.length) {
-            failedResults.push(
-              ...result.failed.map((item: { operationKey: string; error: string }) => ({
-                operationKey: item.operationKey,
-                operationType: "FAILED",
-                error: item.error,
-              })),
-            );
+            for (const item of result.failed as Array<{ operationKey: string; error: string; failureClass?: string }>) {
+              const failureClass: SyncStatus = item.failureClass === "FAILED_TERMINAL" ? "FAILED_TERMINAL" : "FAILED_RETRYABLE";
+              failedResults.push({ operationKey: item.operationKey, operationType: "FAILED", error: item.error, failureClass });
+              await updateQueuedOperation(item.operationKey, { syncStatus: failureClass, failureCode: item.error.split(":")[0], failureMessage: item.error }).catch(() => {});
+            }
           }
         } else {
           const detail = await readResponseDetail(response);
           const error = detail || `HTTP ${response.status}`;
-          failedResults.push({
-            operationKey: operation.operationKey,
-            operationType: "FAILED",
-            error,
-          });
+          failedResults.push({ operationKey: operation.operationKey, operationType: "FAILED", error, failureClass: "FAILED_RETRYABLE" });
+          await updateQueuedOperation(operation.operationKey, { syncStatus: "FAILED_RETRYABLE", failureCode: `HTTP_${response.status}`, failureMessage: error }).catch(() => {});
           syncResult.reason =
             response.status === 401 || response.status === 403
               ? "authentication-required"
               : "push-failed";
         }
       } catch (error) {
-        failedResults.push({
-          operationKey: operation.operationKey,
-          operationType: "FAILED",
-          error: error instanceof Error ? error.message : "SYNC_PUSH_NETWORK_ERROR",
-        });
+        const message = error instanceof Error ? error.message : "SYNC_PUSH_NETWORK_ERROR";
+        failedResults.push({ operationKey: operation.operationKey, operationType: "FAILED", error: message, failureClass: "FAILED_RETRYABLE" });
+        await updateQueuedOperation(operation.operationKey, { syncStatus: "FAILED_RETRYABLE", failureCode: "SYNC_PUSH_NETWORK_ERROR", failureMessage: message }).catch(() => {});
         syncResult.reason = "push-failed";
       }
     }
@@ -349,15 +395,10 @@ export function synchronize() {
 
 export async function getOfflineState() {
   const queued = await getQueuedOperations();
-  const lastResults = await metaGet<Array<{ operationKey: string; operationType: string; error?: string }>>("lastSyncResults") ?? [];
   const diagnostic = await metaGet<SyncDiagnostic>("lastSyncDiagnostic");
-  const failedKeys = new Set(lastResults.filter((item) => item.operationType === "FAILED").map((item) => item.operationKey));
-  return {
-    online: navigator.onLine,
-    pending: queued.length,
-    failed: queued.filter((item) => failedKeys.has(item.operationKey)).length,
-    diagnostic,
-  };
+  const failed = queued.filter((item) => item.syncStatus === "FAILED_TERMINAL" || item.syncStatus === "FAILED_RETRYABLE" || Boolean(item.failureMessage)).length;
+  const pending = queued.filter((item) => item.syncStatus !== "FAILED_TERMINAL" && item.syncStatus !== "FAILED_RETRYABLE").length;
+  return { online: navigator.onLine, pending, failed, diagnostic };
 }
 
 export async function setOfflineCache<T>(key: string, value: T) {
