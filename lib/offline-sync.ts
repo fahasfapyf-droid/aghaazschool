@@ -171,7 +171,7 @@ export async function checkServerReachability() {
   return true;
 }
 
-export async function synchronize() {
+async function synchronizeInternal() {
   if (!navigator.onLine) {
     await setDiagnostic({ stage: "health", reason: "browser-offline" }).catch(() => {});
     return { pushed: 0, pulled: 0, failed: 0, reachable: false, reason: "browser-offline" as const };
@@ -310,6 +310,16 @@ export async function synchronize() {
     }).catch(() => {});
   }
   return syncResult;
+}
+
+let syncInFlight: Promise<Awaited<ReturnType<typeof synchronizeInternal>>> | null = null;
+
+export function synchronize() {
+  if (syncInFlight) return syncInFlight;
+  syncInFlight = synchronizeInternal().finally(() => {
+    syncInFlight = null;
+  });
+  return syncInFlight;
 }
 
 export async function getOfflineState() {
