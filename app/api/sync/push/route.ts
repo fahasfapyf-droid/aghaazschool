@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, roleAllowed } from "@/lib/auth";
-import type { Prisma, UserRole } from "@prisma/client";
+import { Prisma, type UserRole } from "@prisma/client";
 import { admissionCreateSchema, applicationNumber, enquiryNumber } from "@/lib/admissions";
 
 const MAX_RETRY_ATTEMPTS = 5;
