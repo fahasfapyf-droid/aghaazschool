@@ -3,6 +3,7 @@ import { getCurrentUser, roleAllowed } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { admissionCreateSchema } from "@/lib/admissions";
+import { requestAuditContext } from "@/lib/audit";
 
 const STAFF_ROLES = ["SUPER_ADMIN", "ADMIN", "RECEPTIONIST"] as const;
 const statuses = ["NEW","UNDER_REVIEW","DOCUMENTS_PENDING","ASSESSMENT_SCHEDULED","ASSESSMENT_COMPLETED","APPROVED","PAYMENT_PENDING","ENROLLED","REJECTED","WAITLISTED","WITHDRAWN","CANCELLED"] as const;
