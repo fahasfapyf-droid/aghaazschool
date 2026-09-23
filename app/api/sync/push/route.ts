@@ -77,7 +77,7 @@ async function applyOperation(op: z.infer<typeof operationSchema>, userId: strin
 
   if (op.operationType === "CREATE_ADMISSION") {
     const parsed = admissionCreateSchema.safeParse(op.payload);
-    if (!parsed.success) throw new Error("INVALID_ADMISSION_OPERATION");
+    if (!parsed.success) {\n      const fields = Object.keys(parsed.error.flatten().fieldErrors);\n      throw new Error(`INVALID_ADMISSION_OPERATION${fields.length ? `:${fields.join(",")}` : ""}`);\n    }
 
     const data = parsed.data;
     const dateOfBirth = data.dateOfBirth ? new Date(data.dateOfBirth) : undefined;
@@ -163,25 +163,42 @@ export async function POST(request: Request) {
 
   for (const op of body.data.operations) {
     const existing = await prisma.syncOperation.findUnique({ where: { operationKey: op.operationKey } });
-    if (existing) {
+    if (existing?.status === "APPLIED") {
       duplicate.push(op.operationKey);
-      if (existing.status === "APPLIED") applied.push(op.operationKey);
-      if (existing.status === "FAILED") failed.push({ operationKey: op.operationKey, error: existing.errorMessage || existing.errorCode || "SYNC_OPERATION_FAILED" });
+      applied.push(op.operationKey);
       continue;
     }
 
-    const record = await prisma.syncOperation.create({
-      data: {
-        operationKey: op.operationKey,
-        deviceId: device.id,
-        entityType: op.entityType,
-        entityId: op.entityId,
-        operationType: op.operationType,
-        payload: op.payload as object,
-        clientCreatedAt: new Date(op.clientCreatedAt),
-        status: "PENDING",
-      },
-    });
+    let record = existing;
+    if (existing?.status === "FAILED") {
+      record = await prisma.syncOperation.update({
+        where: { id: existing.id },
+        data: {
+          status: "PENDING",
+          errorCode: null,
+          errorMessage: null,
+          appliedAt: null,
+          lastAttemptAt: new Date(),
+        },
+      });
+    } else if (!existing) {
+      record = await prisma.syncOperation.create({
+        data: {
+          operationKey: op.operationKey,
+          deviceId: device.id,
+          entityType: op.entityType,
+          entityId: op.entityId,
+          operationType: op.operationType,
+          payload: op.payload as object,
+          clientCreatedAt: new Date(op.clientCreatedAt),
+          status: "PENDING",
+          lastAttemptAt: new Date(),
+        },
+      });
+    } else {
+      duplicate.push(op.operationKey);
+      continue;
+    }
     accepted.push(op.operationKey);
 
     try {
