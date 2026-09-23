@@ -178,7 +178,6 @@ export async function POST(request: Request) {
           errorCode: null,
           errorMessage: null,
           appliedAt: null,
-          lastAttemptAt: new Date(),
         },
       });
     } else if (!existing) {
