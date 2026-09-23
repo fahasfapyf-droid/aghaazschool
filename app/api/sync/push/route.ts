@@ -106,61 +106,60 @@ async function applyOperation(tx: Prisma.TransactionClient, op: z.infer<typeof o
     }
 
     const year = new Date().getFullYear();
-      const session = await tx.academicSession.upsert({
-        where: { name: data.sessionName },
-        update: {},
-        create: { name: data.sessionName, startDate: new Date(`${year}-08-01`), endDate: new Date(`${year + 1}-07-31`) },
-      });
+    const session = await tx.academicSession.upsert({
+      where: { name: data.sessionName },
+      update: {},
+      create: { name: data.sessionName, startDate: new Date(`${year}-08-01`), endDate: new Date(`${year + 1}-07-31`) },
+    });
 
-      const enquiry = await tx.admissionEnquiry.create({
-        data: {
-          enquiryNumber: enquiryNumber(),
-          syncOperationKey: op.operationKey,
-          studentName: data.studentName,
-          dateOfBirth,
-          gender: data.gender,
-          guardianName: data.guardianName,
-          guardianPhone: data.guardianPhone,
-          guardianEmail: data.guardianEmail || undefined,
-          desiredClass: data.desiredClass,
-          source: "admission_form_offline_sync",
-          notes: data.remarks || undefined,
-        },
-      });
+    const enquiry = await tx.admissionEnquiry.create({
+      data: {
+        enquiryNumber: enquiryNumber(),
+        syncOperationKey: op.operationKey,
+        studentName: data.studentName,
+        dateOfBirth,
+        gender: data.gender,
+        guardianName: data.guardianName,
+        guardianPhone: data.guardianPhone,
+        guardianEmail: data.guardianEmail || undefined,
+        desiredClass: data.desiredClass,
+        source: "admission_form_offline_sync",
+        notes: data.remarks || undefined,
+      },
+    });
 
-      const application = await tx.application.create({
-        data: {
-          applicationNumber: applicationNumber(),
-          syncOperationKey: op.operationKey,
-          enquiryId: enquiry.id,
-          sessionId: session.id,
-          desiredClass: data.desiredClass,
-          studentName: data.studentName,
-          dateOfBirth,
-          gender: data.gender,
-          guardianName: data.guardianName,
-          guardianPhone: data.guardianPhone,
-          guardianEmail: data.guardianEmail || undefined,
-          previousSchool: data.previousSchool || undefined,
-          remarks: data.remarks || undefined,
-          photoDataUrl: data.photoDataUrl || undefined,
-          formData: data.formData ? JSON.parse(JSON.stringify(data.formData)) : undefined,
-          status: "UNDER_REVIEW",
-        },
-      });
+    const application = await tx.application.create({
+      data: {
+        applicationNumber: applicationNumber(),
+        syncOperationKey: op.operationKey,
+        enquiryId: enquiry.id,
+        sessionId: session.id,
+        desiredClass: data.desiredClass,
+        studentName: data.studentName,
+        dateOfBirth,
+        gender: data.gender,
+        guardianName: data.guardianName,
+        guardianPhone: data.guardianPhone,
+        guardianEmail: data.guardianEmail || undefined,
+        previousSchool: data.previousSchool || undefined,
+        remarks: data.remarks || undefined,
+        photoDataUrl: data.photoDataUrl || undefined,
+        formData: data.formData ? JSON.parse(JSON.stringify(data.formData)) : undefined,
+        status: "UNDER_REVIEW",
+      },
+    });
 
-      await tx.auditLog.create({
-        data: {
-          userId,
-          action: "ADMISSION_APPLICATION_CREATED_OFFLINE_SYNC",
-          entityType: "Application",
-          entityId: application.id,
-          metadata: { operationKey: op.operationKey, localEntityId: op.entityId, applicationNumber: application.applicationNumber, enquiryNumber: enquiry.enquiryNumber },
-        },
-      });
+    await tx.auditLog.create({
+      data: {
+        userId,
+        action: "ADMISSION_APPLICATION_CREATED_OFFLINE_SYNC",
+        entityType: "Application",
+        entityId: application.id,
+        metadata: { operationKey: op.operationKey, localEntityId: op.entityId, applicationNumber: application.applicationNumber, enquiryNumber: enquiry.enquiryNumber },
+      },
+    });
 
-      return { applicationId: application.id, applicationNumber: application.applicationNumber, enquiryNumber: enquiry.enquiryNumber };
-    return { ...result, operationType: op.operationType };
+    return { applicationId: application.id, applicationNumber: application.applicationNumber, enquiryNumber: enquiry.enquiryNumber, operationType: op.operationType };
   }
 
   throw new Error("UNSUPPORTED_SYNC_OPERATION");
