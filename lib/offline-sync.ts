@@ -196,13 +196,25 @@ export async function discardOfflineOperation(operationKey: string) {
 export async function retryOfflineOperation(operationKey: string, payload?: unknown) {
   const operation = await getOfflineOperation(operationKey);
   if (!operation) throw new Error("OFFLINE_OPERATION_NOT_FOUND");
-  await updateQueuedOperation(operationKey, {
-    ...(payload === undefined ? {} : { payload }),
+  const nextKey = crypto.randomUUID();
+  const replacement: PendingOperation = {
+    ...operation,
+    operationKey: nextKey,
+    payload: payload === undefined ? operation.payload : payload,
+    clientCreatedAt: new Date().toISOString(),
     syncStatus: "QUEUED",
     failureCode: undefined,
     failureMessage: undefined,
+  };
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(OPS_STORE, "readwrite");
+    tx.objectStore(OPS_STORE).put(replacement);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
   });
   void synchronize();
+  return nextKey;
 }
 
 export async function checkServerReachability() {
@@ -268,7 +280,7 @@ async function synchronizeInternal() {
   if (queued.length) {
     const appliedKeys: string[] = [];
     const duplicateKeys: string[] = [];
-    const failedResults: Array<{ operationKey: string; operationType: string; error: string }> = [];
+    const failedResults: Array<{ operationKey: string; operationType: string; error: string; failureClass: SyncStatus }> = [];
     const successfulResults: Array<Record<string, unknown>> = [];
 
     for (const operation of queued.filter((item) => item.syncStatus !== "FAILED_TERMINAL").slice(0, 250)) {
@@ -313,8 +325,6 @@ async function synchronizeInternal() {
     }
 
     const syncResults = [...successfulResults, ...failedResults];
-    if (syncResults.length) await metaSet("lastSyncResults", syncResults);
-
     await removeQueued([
       ...appliedKeys,
       ...duplicateKeys.filter(
