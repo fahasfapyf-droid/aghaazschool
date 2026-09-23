@@ -243,7 +243,7 @@ export async function POST(request: Request) {
         const appliedResult = await applyOperation(tx, op, user.id);
         await tx.syncOperation.update({ where: { id: txOperation.id }, data: { status: "APPLIED", appliedAt: new Date(), errorCode: null, errorMessage: null } });
         return { result: appliedResult };
-      }, { timeout: 120000 });
+      }, { maxWait: 5000, timeout: 120000, isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
       applied.push(op.operationKey);
       if (result.result && "applicationId" in result.result) results.push({ operationKey: op.operationKey, ...result.result });
