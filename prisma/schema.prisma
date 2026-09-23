@@ -247,6 +247,7 @@ model AcademicClassTeacher {
 model AdmissionEnquiry {
   id String @id @default(cuid())
   enquiryNumber String @unique
+  syncOperationKey String? @unique
   studentName String
   dateOfBirth DateTime?
   gender Gender?
@@ -265,6 +266,7 @@ model AdmissionEnquiry {
 model Application {
   id String @id @default(cuid())
   applicationNumber String @unique
+  syncOperationKey String? @unique
   enquiryId String?
   sessionId String
   desiredClass String
@@ -814,6 +816,8 @@ model SyncOperation {
   clientCreatedAt DateTime
   receivedAt DateTime @default(now())
   appliedAt DateTime?
+  attemptCount Int @default(0)
+  lastAttemptAt DateTime?
   status String @default("PENDING")
   errorCode String?
   errorMessage String?
