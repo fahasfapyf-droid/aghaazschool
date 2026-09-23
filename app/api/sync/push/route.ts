@@ -5,6 +5,13 @@ import { getCurrentUser, roleAllowed } from "@/lib/auth";
 import type { Prisma, UserRole } from "@prisma/client";
 import { admissionCreateSchema, applicationNumber, enquiryNumber } from "@/lib/admissions";
 
+const MAX_RETRY_ATTEMPTS = 5;
+
+function classifyFailure(message: string): "FAILED_TERMINAL" | "FAILED_RETRYABLE" {
+  if (message.startsWith("INVALID_ADMISSION_OPERATION") || message === "INVALID_DATE_OF_BIRTH" || message === "UNSUPPORTED_ENTITY_TYPE" || message === "UNSUPPORTED_SYNC_OPERATION" || message === "STUDENT_NOT_FOUND") return "FAILED_TERMINAL";
+  return "FAILED_RETRYABLE";
+}
+
 const operationSchema = z.object({
   operationKey: z.string().min(8).max(200),
   entityType: z.string().min(1).max(120),
@@ -16,7 +23,7 @@ const operationSchema = z.object({
 const EDIT_ROLES: UserRole[] = ["SUPER_ADMIN", "ADMIN", "RECEPTIONIST"];
 const schema = z.object({ deviceKey: z.string().min(16).max(200), operations: z.array(operationSchema).max(250) });
 
-async function applyOperation(op: z.infer<typeof operationSchema>, userId: string) {
+async function applyOperation(tx: Prisma.TransactionClient, op: z.infer<typeof operationSchema>, userId: string) {
   if (op.entityType !== "Application") throw new Error("UNSUPPORTED_ENTITY_TYPE");
 
   if (op.operationType === "UPDATE_STUDENT_PROFILE") {
@@ -36,7 +43,7 @@ async function applyOperation(op: z.infer<typeof operationSchema>, userId: strin
     const dateOfBirth = data.dateOfBirth ? new Date(data.dateOfBirth) : null;
     if (dateOfBirth && Number.isNaN(dateOfBirth.getTime())) throw new Error("INVALID_DATE_OF_BIRTH");
 
-    await prisma.$transaction(async tx => {
+    {
       const existing = await tx.application.findFirst({ where: { id: op.entityId, enrollment: { isNot: null } }, select: { id: true, formData: true } });
       if (!existing) throw new Error("STUDENT_NOT_FOUND");
 
@@ -70,7 +77,7 @@ async function applyOperation(op: z.infer<typeof operationSchema>, userId: strin
           metadata: { operationKey: op.operationKey, clientCreatedAt: op.clientCreatedAt },
         },
       });
-    });
+    }
 
     return { applicationId: op.entityId, operationType: op.operationType };
   }
@@ -86,8 +93,19 @@ async function applyOperation(op: z.infer<typeof operationSchema>, userId: strin
     const dateOfBirth = data.dateOfBirth ? new Date(data.dateOfBirth) : undefined;
     if (dateOfBirth && Number.isNaN(dateOfBirth.getTime())) throw new Error("INVALID_DATE_OF_BIRTH");
 
-    const result = await prisma.$transaction(async tx => {
-      const year = new Date().getFullYear();
+    const existingApplication = await tx.application.findUnique({
+      where: { syncOperationKey: op.operationKey },
+      select: { id: true, applicationNumber: true, enquiry: { select: { enquiryNumber: true } } },
+    });
+    if (existingApplication) return { applicationId: existingApplication.id, applicationNumber: existingApplication.applicationNumber, enquiryNumber: existingApplication.enquiry?.enquiryNumber };
+
+    const existingEnquiry = await tx.admissionEnquiry.findUnique({ where: { syncOperationKey: op.operationKey }, select: { id: true, enquiryNumber: true } });
+    if (existingEnquiry) {
+      const existingByEnquiry = await tx.application.findFirst({ where: { enquiryId: existingEnquiry.id }, select: { id: true, applicationNumber: true } });
+      if (existingByEnquiry) return { applicationId: existingByEnquiry.id, applicationNumber: existingByEnquiry.applicationNumber, enquiryNumber: existingEnquiry.enquiryNumber };
+    }
+
+    const year = new Date().getFullYear();
       const session = await tx.academicSession.upsert({
         where: { name: data.sessionName },
         update: {},
@@ -97,6 +115,7 @@ async function applyOperation(op: z.infer<typeof operationSchema>, userId: strin
       const enquiry = await tx.admissionEnquiry.create({
         data: {
           enquiryNumber: enquiryNumber(),
+          syncOperationKey: op.operationKey,
           studentName: data.studentName,
           dateOfBirth,
           gender: data.gender,
@@ -112,6 +131,7 @@ async function applyOperation(op: z.infer<typeof operationSchema>, userId: strin
       const application = await tx.application.create({
         data: {
           applicationNumber: applicationNumber(),
+          syncOperationKey: op.operationKey,
           enquiryId: enquiry.id,
           sessionId: session.id,
           desiredClass: data.desiredClass,
@@ -140,8 +160,6 @@ async function applyOperation(op: z.infer<typeof operationSchema>, userId: strin
       });
 
       return { applicationId: application.id, applicationNumber: application.applicationNumber, enquiryNumber: enquiry.enquiryNumber };
-    });
-
     return { ...result, operationType: op.operationType };
   }
 
@@ -156,61 +174,95 @@ export async function POST(request: Request) {
   if (!body.success) return NextResponse.json({ error: "Invalid sync payload" }, { status: 400 });
 
   const device = await prisma.syncDevice.findUnique({ where: { deviceKey: body.data.deviceKey } });
-  if (!device || (device.userId && device.userId !== user.id)) return NextResponse.json({ error: "Device not registered" }, { status: 403 });
+  if (!device || !device.userId || device.userId !== user.id) return NextResponse.json({ error: "Device not registered" }, { status: 403 });
 
   const accepted: string[] = [];
   const duplicate: string[] = [];
   const applied: string[] = [];
   const results: { operationKey: string; operationType: string; applicationId: string; applicationNumber?: string; enquiryNumber?: string }[] = [];
-  const failed: { operationKey: string; error: string }[] = [];
+  const failed: { operationKey: string; error: string; failureClass: "FAILED_TERMINAL" | "FAILED_RETRYABLE" }[] = [];
 
   for (const op of body.data.operations) {
-    const existing = await prisma.syncOperation.findUnique({ where: { operationKey: op.operationKey } });
+    let existing = await prisma.syncOperation.findUnique({ where: { operationKey: op.operationKey } });
+
     if (existing?.status === "APPLIED") {
       duplicate.push(op.operationKey);
       applied.push(op.operationKey);
       continue;
     }
 
-    let record = existing;
-    if (existing?.status === "FAILED") {
-      record = await prisma.syncOperation.update({
-        where: { id: existing.id },
-        data: {
-          status: "PENDING",
-          errorCode: null,
-          errorMessage: null,
-          appliedAt: null,
-        },
-      });
-    } else if (!existing) {
-      record = await prisma.syncOperation.create({
-        data: {
-          operationKey: op.operationKey,
-          deviceId: device.id,
-          entityType: op.entityType,
-          entityId: op.entityId,
-          operationType: op.operationType,
-          payload: op.payload as object,
-          clientCreatedAt: new Date(op.clientCreatedAt),
-          status: "PENDING",
-        },
-      });
-    } else {
-      duplicate.push(op.operationKey);
+    if (existing?.status === "FAILED_TERMINAL") {
+      failed.push({ operationKey: op.operationKey, error: existing.errorMessage || existing.errorCode || "SYNC_OPERATION_FAILED", failureClass: "FAILED_TERMINAL" });
       continue;
     }
+
+    if (existing?.status === "FAILED" || existing?.status === "FAILED_RETRYABLE") {
+      const failureClass = classifyFailure(existing.errorCode || existing.errorMessage || "");
+      if (failureClass === "FAILED_TERMINAL") {
+        await prisma.syncOperation.update({ where: { id: existing.id }, data: { status: "FAILED_TERMINAL" } });
+        failed.push({ operationKey: op.operationKey, error: existing.errorMessage || existing.errorCode || "SYNC_OPERATION_FAILED", failureClass });
+        continue;
+      }
+      if (existing.attemptCount >= MAX_RETRY_ATTEMPTS) {
+        await prisma.syncOperation.update({ where: { id: existing.id }, data: { status: "FAILED_TERMINAL", errorCode: "SYNC_RETRY_LIMIT", errorMessage: "Maximum synchronization retry attempts reached." } });
+        failed.push({ operationKey: op.operationKey, error: "Maximum synchronization retry attempts reached.", failureClass: "FAILED_TERMINAL" });
+        continue;
+      }
+      existing = await prisma.syncOperation.update({ where: { id: existing.id }, data: { status: "PENDING", errorCode: null, errorMessage: null, lastAttemptAt: new Date(), attemptCount: { increment: 1 } } });
+    } else if (!existing) {
+      try {
+        existing = await prisma.syncOperation.create({
+          data: {
+            operationKey: op.operationKey,
+            deviceId: device.id,
+            entityType: op.entityType,
+            entityId: op.entityId,
+            operationType: op.operationType,
+            payload: op.payload as object,
+            clientCreatedAt: new Date(op.clientCreatedAt),
+            status: "PENDING",
+            attemptCount: 1,
+            lastAttemptAt: new Date(),
+          },
+        });
+      } catch (error) {
+        if ((error as { code?: string }).code !== "P2002") throw error;
+        existing = await prisma.syncOperation.findUnique({ where: { operationKey: op.operationKey } });
+        if (!existing) throw error;
+      }
+    } else {
+      existing = await prisma.syncOperation.update({ where: { id: existing.id }, data: { status: "PENDING", lastAttemptAt: new Date(), attemptCount: { increment: 1 } } });
+    }
+
     accepted.push(op.operationKey);
 
     try {
-      const result = await applyOperation(op, user.id);
-      await prisma.syncOperation.update({ where: { id: record.id }, data: { status: "APPLIED", appliedAt: new Date() } });
+      const result = await prisma.$transaction(async tx => {
+        const txOperation = await tx.syncOperation.findUnique({ where: { operationKey: op.operationKey } });
+        if (!txOperation) throw new Error("SYNC_OPERATION_NOT_FOUND");
+        if (txOperation.status === "APPLIED") return { result: null };
+        const appliedResult = await applyOperation(tx, op, user.id);
+        await tx.syncOperation.update({ where: { id: txOperation.id }, data: { status: "APPLIED", appliedAt: new Date(), errorCode: null, errorMessage: null } });
+        return { result: appliedResult };
+      }, { timeout: 120000 });
+
       applied.push(op.operationKey);
-      if (result && "applicationId" in result) results.push({ operationKey: op.operationKey, ...result });
+      if (result.result && "applicationId" in result.result) results.push({ operationKey: op.operationKey, ...result.result });
     } catch (error) {
+      if ((error as { code?: string }).code === "P2002" && op.operationType === "CREATE_ADMISSION") {
+        const existingApplication = await prisma.application.findUnique({ where: { syncOperationKey: op.operationKey }, select: { id: true, applicationNumber: true, enquiry: { select: { enquiryNumber: true } } } });
+        if (existingApplication) {
+          await prisma.syncOperation.update({ where: { id: existing.id }, data: { status: "APPLIED", appliedAt: new Date(), errorCode: null, errorMessage: null } });
+          applied.push(op.operationKey);
+          results.push({ operationKey: op.operationKey, operationType: op.operationType, applicationId: existingApplication.id, applicationNumber: existingApplication.applicationNumber, enquiryNumber: existingApplication.enquiry?.enquiryNumber });
+          continue;
+        }
+      }
       const message = error instanceof Error ? error.message : "SYNC_OPERATION_FAILED";
-      await prisma.syncOperation.update({ where: { id: record.id }, data: { status: "FAILED", errorCode: message, errorMessage: message } });
-      failed.push({ operationKey: op.operationKey, error: message });
+      const failureClass = classifyFailure(message);
+      const status = failureClass === "FAILED_TERMINAL" || existing.attemptCount >= MAX_RETRY_ATTEMPTS ? "FAILED_TERMINAL" : "FAILED_RETRYABLE";
+      await prisma.syncOperation.update({ where: { id: existing.id }, data: { status, errorCode: message, errorMessage: message, lastAttemptAt: new Date() } }).catch(() => {});
+      failed.push({ operationKey: op.operationKey, error: message, failureClass: status });
     }
   }
 
