@@ -1,3 +1,4 @@
+/* Aghaaz offline synchronization client. */
 "use client";
 
 type SyncStatus = "QUEUED" | "IN_FLIGHT" | "FAILED_RETRYABLE" | "FAILED_TERMINAL";
