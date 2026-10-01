@@ -26,11 +26,27 @@ export default function ConnectivityIndicator() {
 
   const refresh = useCallback(async () => {
     const browserOnline = navigator.onLine;
-    const online = browserOnline ? await checkServerReachability() : false;
-    const current = await getOfflineState().catch(() => ({ online, pending: 0, failed: 0, diagnostic: undefined }));
+    const reachable = browserOnline ? await checkServerReachability() : false;
+    const current = await getOfflineState().catch(() => ({ online: reachable, pending: 0, failed: 0, diagnostic: undefined }));
+
+    if (reachable && current.pending > 0) {
+      const result = await synchronize().catch(() => null);
+      const after = await getOfflineState().catch(() => ({ online: reachable, pending: current.pending, failed: current.failed ?? 0, diagnostic: current.diagnostic }));
+      setState((s) => ({
+        ...s,
+        online: true,
+        pending: after.pending,
+        failed: after.failed ?? 0,
+        diagnostic: after.diagnostic,
+        reason: result?.reason ?? after.diagnostic?.reason,
+        lastSync: result?.reason === "ok" ? new Date().toISOString() : s.lastSync,
+      }));
+      return;
+    }
+
     setState((s) => ({
       ...s,
-      online,
+      online: reachable,
       pending: current.pending,
       failed: current.failed ?? 0,
       diagnostic: current.diagnostic,
@@ -109,7 +125,7 @@ export default function ConnectivityIndicator() {
   }, [refresh, syncNow]);
 
   const label = !state.online
-    ? "Offline"
+    ? (state.pending ? `Offline · ${state.pending} pending` : "Offline")
     : state.syncing
       ? "Syncing…"
       : state.failed
@@ -125,7 +141,7 @@ export default function ConnectivityIndicator() {
       : state.pending
         ? `Synchronization pending. ${diagnosticText(state.diagnostic)}`
         : "Connection is online. Click to synchronize now."
-    : `Aghaaz is offline. ${diagnosticText(state.diagnostic)}`;
+    : `Aghaaz is offline${state.pending ? ` with ${state.pending} pending operation(s)` : ""}. ${diagnosticText(state.diagnostic)}`;
 
   return (
     <button
