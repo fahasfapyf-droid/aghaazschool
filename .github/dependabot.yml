@@ -5,6 +5,13 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # Keep automatic updates within the current major version.
+    # Major framework/ORM/compiler upgrades must be tested and migrated separately.
+    allow:
+      - dependency-type: all
+        update-types:
+          - version-update:semver-patch
+          - version-update:semver-minor
     groups:
       npm-production:
         dependency-type: production
