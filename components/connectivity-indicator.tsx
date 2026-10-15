@@ -6,6 +6,8 @@ import { checkServerReachability, getOfflineState, synchronize } from "@/lib/off
 type SyncState = {
   online: boolean;
   pending: number;
+  ready: number;
+  retryable: number;
   failed: number;
   syncing: boolean;
   reason?: string;
@@ -22,20 +24,23 @@ function diagnosticText(diagnostic?: SyncState["diagnostic"]) {
 }
 
 export default function ConnectivityIndicator() {
-  const [state, setState] = useState<SyncState>({ online: true, pending: 0, failed: 0, syncing: false });
+  const [state, setState] = useState<SyncState>({ online: true, pending: 0, ready: 0, retryable: 0, failed: 0, syncing: false });
 
   const refresh = useCallback(async () => {
     const browserOnline = navigator.onLine;
+    const current = await getOfflineState().catch(() => ({ online: browserOnline, pending: 0, ready: 0, retryable: 0, failed: 0, diagnostic: undefined }));
+    setState((s) => ({ ...s, online: browserOnline, pending: current.pending, ready: current.ready, retryable: current.retryable, failed: current.failed, diagnostic: current.diagnostic }));
     const reachable = browserOnline ? await checkServerReachability() : false;
-    const current = await getOfflineState().catch(() => ({ online: reachable, pending: 0, failed: 0, diagnostic: undefined }));
 
-    if (reachable && current.pending > 0) {
+    if (reachable && current.ready > 0) {
       const result = await synchronize().catch(() => null);
-      const after = await getOfflineState().catch(() => ({ online: reachable, pending: current.pending, failed: current.failed ?? 0, diagnostic: current.diagnostic }));
+      const after = await getOfflineState().catch(() => ({ online: reachable, pending: current.pending, ready: current.ready, retryable: current.retryable ?? 0, failed: current.failed ?? 0, diagnostic: current.diagnostic }));
       setState((s) => ({
         ...s,
         online: true,
         pending: after.pending,
+        ready: after.ready,
+        retryable: after.retryable,
         failed: after.failed ?? 0,
         diagnostic: after.diagnostic,
         reason: result?.reason ?? after.diagnostic?.reason,
@@ -48,6 +53,8 @@ export default function ConnectivityIndicator() {
       ...s,
       online: reachable,
       pending: current.pending,
+      ready: current.ready,
+      retryable: current.retryable,
       failed: current.failed ?? 0,
       diagnostic: current.diagnostic,
       reason: current.diagnostic?.reason,
@@ -65,38 +72,44 @@ export default function ConnectivityIndicator() {
     try {
       const result = await synchronize();
 
-      if (!result.reachable) {
-        const current = await getOfflineState().catch(() => ({ pending: 0, failed: 0, diagnostic: undefined }));
+      if (!result?.reachable) {
+        const current = await getOfflineState().catch(() => ({ pending: 0, ready: 0, retryable: 0, failed: 0, diagnostic: undefined }));
         setState((s) => ({
           ...s,
           online: false,
           syncing: false,
           pending: current.pending,
+          ready: current.ready,
+          retryable: current.retryable,
           failed: current.failed,
           diagnostic: current.diagnostic,
-          reason: result.reason,
+          reason: result?.reason ?? "sync-failed",
         }));
         return;
       }
 
-      const current = await getOfflineState().catch(() => ({ pending: 0, failed: 0, diagnostic: undefined }));
+      const current = await getOfflineState().catch(() => ({ pending: 0, ready: 0, retryable: 0, failed: 0, diagnostic: undefined }));
       setState((s) => ({
         ...s,
         online: true,
         syncing: false,
         pending: current.pending,
+        ready: current.ready,
+        retryable: current.retryable,
         failed: current.failed,
         diagnostic: current.diagnostic,
-        reason: result.reason,
-        lastSync: result.reason === "ok" ? new Date().toISOString() : s.lastSync,
+        reason: result?.reason ?? "sync-failed",
+        lastSync: result?.reason === "ok" ? new Date().toISOString() : s.lastSync,
       }));
-    } catch (error) {
-      const current = await getOfflineState().catch(() => ({ pending: 0, failed: 0, diagnostic: undefined }));
+    } catch {
+      const current = await getOfflineState().catch(() => ({ pending: 0, ready: 0, retryable: 0, failed: 0, diagnostic: undefined }));
       setState((s) => ({
         ...s,
         online: navigator.onLine,
         syncing: false,
         pending: current.pending,
+        ready: current.ready,
+        retryable: current.retryable,
         failed: current.failed,
         diagnostic: current.diagnostic,
         reason: "sync-exception",
@@ -125,10 +138,12 @@ export default function ConnectivityIndicator() {
   }, [refresh, syncNow]);
 
   const label = !state.online
-    ? (state.pending ? `Offline · ${state.pending} pending` : "Offline")
+    ? (state.pending && state.failed ? `Offline · ${state.pending} pending · ${state.failed} failed` : state.pending ? `Offline · ${state.pending} pending` : state.failed ? `Offline · ${state.failed} failed` : "Offline")
     : state.syncing
       ? "Syncing…"
-      : state.failed
+      : state.failed && state.pending
+        ? `Online · ${state.pending} queued · ${state.failed} failed`
+        : state.failed
         ? `Online · ${state.failed} failed`
         : state.pending
           ? `Online · ${state.pending} pending`
@@ -136,10 +151,12 @@ export default function ConnectivityIndicator() {
 
   const tone = !state.online ? "offline" : state.syncing || state.pending ? "syncing" : state.failed ? "failed" : "online";
   const title = state.online
-    ? state.failed
+    ? state.failed && state.pending
+      ? `${state.pending} operation(s) are queued or retryable; ${state.failed} need attention. ${diagnosticText(state.diagnostic)}`
+      : state.failed
       ? `Synchronization completed with ${state.failed} failed operation(s). ${diagnosticText(state.diagnostic)}`
       : state.pending
-        ? `Synchronization pending. ${diagnosticText(state.diagnostic)}`
+        ? `Synchronization pending: ${state.pending} operation(s), including ${state.retryable} retryable. ${diagnosticText(state.diagnostic)}`
         : "Connection is online. Click to synchronize now."
     : `Aghaaz is offline${state.pending ? ` with ${state.pending} pending operation(s)` : ""}. ${diagnosticText(state.diagnostic)}`;
 
@@ -153,8 +170,8 @@ export default function ConnectivityIndicator() {
     >
       <span className="connectivity-dot" aria-hidden="true" />
       <span>{label}</span>
-      {state.online && (state.pending > 0 || state.failed > 0) && (
-        <span className="connectivity-count">{state.failed || state.pending}</span>
+      {(state.pending > 0 || state.failed > 0) && (
+        <span className="connectivity-count">{state.pending + state.failed}</span>
       )}
     </button>
   );

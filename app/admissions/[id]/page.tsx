@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState, type FormEvent } from "react";
 import { useParams } from "next/navigation";
-import { getLastSyncResults, queueOfflineOperation } from "@/lib/offline-sync";
+import { getLastSyncResults, getOfflineCache, getQueuedOperations, getSyncResultDisposition, isRetryableAdmissionSaveStatus, queueOfflineOperation, setOfflineCache } from "@/lib/offline-sync";
 
 type Application = {
   id: string;
@@ -74,13 +74,34 @@ export default function AdmissionDetail(){
  async function load(){
    setLoading(true); setError("");
    try{
-     const r=await fetch(`/api/admissions/${id}`);
-     const d=await r.json();
-     if(!r.ok)throw Error(d.error||"Unable to load application");
-     setApp(d);
-     if(!editing)setEditForm(buildEditForm(d));
-   }
-   catch(e){setError(e instanceof Error?e.message:"Unable to load application")}
+      const cached=await getOfflineCache<Application>(`admission:${id}`).catch(()=>null);
+      const operations=await getQueuedOperations().catch(()=>[]);
+      const localEdits=operations.filter(operation=>operation.entityType==="Application"&&operation.entityId===id&&operation.operationType==="UPDATE_ADMISSION_APPLICATION"&&operation.syncStatus!=="FAILED_TERMINAL");
+      const hasLocalEdit=localEdits.length>0;
+      if(cached?.value&&(!navigator.onLine||hasLocalEdit)){
+        const latest=hasLocalEdit?withQueuedAdmissionEdit(cached.value,localEdits[localEdits.length-1].payload):cached.value;
+        setApp(latest);
+        if(!editing)setEditForm(buildEditForm(latest));
+        if(hasLocalEdit)await setOfflineCache(`admission:${id}`,latest).catch(()=>{});
+        if(hasLocalEdit){setPendingEditOperationKey(localEdits[localEdits.length-1].operationKey);setSuccess("This device has saved changes waiting to synchronize.");}
+        return;
+      }
+      const r=await fetch(`/api/admissions/${id}`,{cache:"no-store"});
+      const d=await r.json().catch(()=>null);
+      if(!r.ok){
+        if(r.status>=500&&cached?.value){setApp(cached.value);if(!editing)setEditForm(buildEditForm(cached.value));return;}
+        throw Error(d?.error||"Unable to load application");
+      }
+      const latest=hasLocalEdit?withQueuedAdmissionEdit(d,localEdits[localEdits.length-1].payload):d;
+      setApp(latest);
+      await setOfflineCache(`admission:${id}`,latest).catch(()=>{});
+     if(!editing)setEditForm(buildEditForm(latest));
+    }
+    catch(e){
+      const cached=await getOfflineCache<Application>(`admission:${id}`).catch(()=>null);
+      if(cached?.value&&(!navigator.onLine||e instanceof TypeError)){setApp(cached.value);if(!editing)setEditForm(buildEditForm(cached.value));}
+      else setError(e instanceof Error?e.message:"Unable to load application");
+    }
    finally{setLoading(false)}
  }
  useEffect(()=>{if(id)load()},[id]);
@@ -101,6 +122,13 @@ export default function AdmissionDetail(){
    next.photoDataUrl=application.photoDataUrl||next.photoDataUrl;
    return next;
  }
+ function withQueuedAdmissionEdit(application:Application,operationPayload:unknown):Application{
+   if(!operationPayload||typeof operationPayload!=="object"||Array.isArray(operationPayload))return application;
+   const payload=operationPayload as Record<string,unknown>;
+   const sessionName=typeof payload.sessionName==="string"?payload.sessionName:application.session?.name;
+   const formData=payload.formData&&typeof payload.formData==="object"&&!Array.isArray(payload.formData)?payload.formData as Record<string,unknown>:application.formData;
+   return {...application,...payload,session:{...application.session,name:sessionName},formData};
+ }
  const updateEdit=(key:keyof EditForm,value:string)=>setEditForm(current=>({...current,[key]:value}));
  function handleEditPhoto(file:File|null){
    if(!file)return;
@@ -113,40 +141,53 @@ export default function AdmissionDetail(){
    const phone=editForm.phone1.trim();
    if(phone.length<7){setError("Phone number 1 must contain at least 7 characters.");return;}
    if(phone.length>30){setError("Phone number 1 must contain no more than 30 characters.");return;}
+    if(editForm.studentName.trim().length<2||editForm.guardianName.trim().length<2||!editForm.desiredClass.trim()||!editForm.sessionName.trim()){
+      setError("Enter a student name, guardian name, class, and academic session before saving.");return;
+    }
    setEditSaving(true);setError("");setSuccess("");
-   const formData=Object.fromEntries(Object.entries(editForm));
+    const normalizedForm=Object.fromEntries(Object.entries(editForm).map(([key,value])=>[key,key==="photoDataUrl"?value:value.trim()])) as EditForm;
+    const formData=Object.fromEntries(Object.entries(normalizedForm));
    const payload={
-     studentName:editForm.studentName,
-     dateOfBirth:editForm.dateOfBirth||undefined,
-     gender:editForm.gender||undefined,
-     guardianName:editForm.guardianName,
-     guardianPhone:editForm.phone1,
-     guardianEmail:editForm.guardianEmail,
-     desiredClass:editForm.desiredClass,
-     previousSchool:editForm.previousSchool,
-     sessionName:editForm.sessionName,
-     remarks:editForm.remarks,
-     photoDataUrl:editForm.photoDataUrl||undefined,
+      studentName:normalizedForm.studentName,
+      dateOfBirth:normalizedForm.dateOfBirth||undefined,
+      gender:normalizedForm.gender||undefined,
+      guardianName:normalizedForm.guardianName,
+      guardianPhone:normalizedForm.phone1,
+      guardianEmail:normalizedForm.guardianEmail,
+      desiredClass:normalizedForm.desiredClass,
+      previousSchool:normalizedForm.previousSchool,
+      sessionName:normalizedForm.sessionName,
+      remarks:normalizedForm.remarks,
+      photoDataUrl:normalizedForm.photoDataUrl||undefined,
      formData
    };
    try{
-     if(navigator.onLine){
-       try{
-         const response=await fetch(`/api/admissions/${id}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({application:payload})});
-         const data=await response.json();
-         if(!response.ok){
-           const details=data?.details?.fieldErrors??{};
-           const issues=Object.entries(details).flatMap(([field,messages])=>Array.isArray(messages)?messages.map(message=>`${field}: ${String(message)}`):[]);
-           throw new Error(issues.length?`Invalid application — ${issues.join("; ")}`:(data?.error||"Unable to save application."));
-         }
-         setApp(data);
-         setEditForm(buildEditForm(data));
-         setEditing(false);
-         setSuccess("Application details saved.");
-         return;
-       }catch(networkError){
-         if(!(networkError instanceof TypeError))throw networkError;
-       }
+      const existingOperations=await getQueuedOperations();
+      const hasEarlierQueuedEdit=existingOperations.some(operation=>operation.entityType==="Application"&&operation.entityId===id&&operation.operationType==="UPDATE_ADMISSION_APPLICATION"&&operation.syncStatus!=="FAILED_TERMINAL");
+      if(navigator.onLine&&!hasEarlierQueuedEdit){
+        const controller=new AbortController();
+        const timeout=window.setTimeout(()=>controller.abort(),10000);
+        try{
+          const response=await fetch(`/api/admissions/${id}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({application:payload}),signal:controller.signal});
+          const data=await response.json().catch(()=>null);
+          if(response.ok&&data){
+            setApp(data);
+            setEditForm(buildEditForm(data));
+            setEditing(false);
+            setSuccess("Application details saved on the server.");
+            await setOfflineCache(`admission:${id}`,data).catch(()=>{});
+            return;
+          }
+          const retryable=isRetryableAdmissionSaveStatus(response.status);
+          if(!retryable){
+            const details=data?.details?.fieldErrors??{};
+            const issues=Object.entries(details).flatMap(([field,messages])=>Array.isArray(messages)?messages.map(message=>`${field}: ${String(message)}`):[]);
+            throw new Error(issues.length?`Invalid application — ${issues.join("; ")}`:(data?.error||`Unable to save application (HTTP ${response.status}).`));
+          }
+        }catch(requestError){
+          const transient=requestError instanceof TypeError||(requestError instanceof DOMException&&requestError.name==="AbortError");
+          if(!transient)throw requestError;
+        }finally{window.clearTimeout(timeout);}
      }
      const operationKey=await queueOfflineOperation({
        entityType:"Application",
@@ -155,21 +196,31 @@ export default function AdmissionDetail(){
        payload
      });
      setPendingEditOperationKey(operationKey);
-     setApp(current=>current?{...current,studentName:payload.studentName,dateOfBirth:payload.dateOfBirth,gender:payload.gender,guardianName:payload.guardianName,guardianPhone:payload.guardianPhone,guardianEmail:payload.guardianEmail,desiredClass:payload.desiredClass,previousSchool:payload.previousSchool,remarks:payload.remarks,photoDataUrl:payload.photoDataUrl,session:{name:payload.sessionName},formData}:current);
+      const updated={...app!,studentName:payload.studentName,dateOfBirth:payload.dateOfBirth,gender:payload.gender,guardianName:payload.guardianName,guardianPhone:payload.guardianPhone,guardianEmail:payload.guardianEmail,desiredClass:payload.desiredClass,previousSchool:payload.previousSchool,remarks:payload.remarks,photoDataUrl:payload.photoDataUrl,session:{...app!.session,name:payload.sessionName},formData:payload.formData};
+      setApp(updated);
+      await setOfflineCache(`admission:${id}`,updated);
+      setEditForm(normalizedForm);
      setEditing(false);
-     setSuccess("Application details saved on this device. They will synchronize automatically when the internet connection returns.");
+      setSuccess(navigator.onLine?"Application saved locally and queued while the server is unavailable. Synchronization will retry automatically.":"Application saved on this device and queued for synchronization when connectivity returns.");
    }catch(e){setError(e instanceof Error?e.message:"Unable to save application details.");}
    finally{setEditSaving(false);}
  }
  useEffect(()=>{
    if(!pendingEditOperationKey)return;
    const onSync=async()=>{
-     const results=await getLastSyncResults<{operationKey:string;operationType:string;applicationId?:string;applicationNumber?:string;error?:string}>();
+      const results=await getLastSyncResults<{operationKey:string;operationType:string;applicationId?:string;applicationNumber?:string;error?:string;failureClass?:string}>();
      const match=results.find(item=>item.operationKey===pendingEditOperationKey);
-     if(!match)return;
-     setPendingEditOperationKey("");
-     if(match.operationType==="FAILED") setError(`Application synchronization failed: ${match.error||"Unable to save application details."}`);
-     else { setSuccess("Application details synchronized successfully."); await load(); }
+      const disposition=getSyncResultDisposition(match);
+      if(disposition==="pending")return;
+      if(disposition==="terminal"){
+          setPendingEditOperationKey("");
+          setError(`Application synchronization needs attention: ${match?.error||"Unable to save application details."}`);
+      }else if(disposition==="retryable")setSuccess("Changes are saved on this device. Synchronization will retry automatically.");
+      else{
+        setPendingEditOperationKey("");
+        setSuccess("Application details synchronized successfully.");
+        await load();
+      }
    };
    window.addEventListener("aghaaz:sync-complete",onSync);
    void onSync();
