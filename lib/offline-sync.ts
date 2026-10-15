@@ -247,6 +247,16 @@ export function getSyncResultDisposition(result?: { operationType?: string; fail
   return result.failureClass === "FAILED_TERMINAL" ? "terminal" as const : "retryable" as const;
 }
 
+export function mergeQueuedAdmissionEdit<T extends { session?: { name?: string }; formData?: Record<string, unknown> | null }>(application: T, operationPayload: unknown): T {
+  if (!operationPayload || typeof operationPayload !== "object" || Array.isArray(operationPayload)) return application;
+  const payload = operationPayload as Record<string, unknown>;
+  const sessionName = typeof payload.sessionName === "string" ? payload.sessionName : application.session?.name;
+  const formData = payload.formData && typeof payload.formData === "object" && !Array.isArray(payload.formData)
+    ? payload.formData as Record<string, unknown>
+    : application.formData;
+  return { ...application, ...payload, session: { ...application.session, name: sessionName }, formData } as T;
+}
+
 function retryPatch(operation: PendingOperation, failureCode: string, failureMessage: string): Partial<PendingOperation> {
   const retryCount = (operation.retryCount ?? 0) + 1;
   return {

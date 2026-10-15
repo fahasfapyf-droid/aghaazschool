@@ -116,6 +116,27 @@ test("offline record cache survives reload and queued edit remains available", a
   assert.equal((await sync.getQueuedOperations())[0].operationKey, key);
 });
 
+test("queued admission payload overlays server data without replacing unrelated fields", () => {
+  const serverAdmission = {
+    id: "application-1",
+    status: "UNDER_REVIEW",
+    studentName: "Old Applicant",
+    session: { id: "session-1", name: "2025–26" },
+    formData: { studentName: "Old Applicant", guardianCnic: "123" },
+  };
+  const queuedPayload = {
+    studentName: "Updated Applicant",
+    sessionName: "2026–27",
+    formData: { studentName: "Updated Applicant", guardianCnic: "123" },
+  };
+  const merged = sync.mergeQueuedAdmissionEdit(serverAdmission, queuedPayload);
+  assert.equal(merged.studentName, "Updated Applicant");
+  assert.deepEqual(merged.session, { id: "session-1", name: "2026–27" });
+  assert.equal(merged.status, "UNDER_REVIEW");
+  assert.deepEqual(merged.formData, queuedPayload.formData);
+  assert.equal(sync.mergeQueuedAdmissionEdit(serverAdmission, null), serverAdmission);
+});
+
 test("browser online event can retry after server health becomes reachable", async () => {
   await reset();
   const key = await enqueue();

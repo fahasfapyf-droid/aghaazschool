@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { useParams } from "next/navigation";
-import { getLastSyncResults, getOfflineCache, getQueuedOperations, getSyncResultDisposition, isRetryableAdmissionSaveStatus, queueOfflineOperation, setOfflineCache } from "@/lib/offline-sync";
+import { getLastSyncResults, getOfflineCache, getQueuedOperations, getSyncResultDisposition, isRetryableAdmissionSaveStatus, mergeQueuedAdmissionEdit, queueOfflineOperation, setOfflineCache } from "@/lib/offline-sync";
 
 type Application = {
   id: string;
@@ -70,8 +70,12 @@ export default function AdmissionDetail(){
  const [editForm,setEditForm]=useState<EditForm>(emptyEditForm);
  const [editSaving,setEditSaving]=useState(false);
  const [pendingEditOperationKey,setPendingEditOperationKey]=useState("");
+ const editingRef=useRef(editing);
+ const loadGeneration=useRef(0);
+ editingRef.current=editing;
 
- async function load(){
+ const load=useCallback(async()=>{
+   const generation=++loadGeneration.current;
    setLoading(true); setError("");
    try{
       const cached=await getOfflineCache<Application>(`admission:${id}`).catch(()=>null);
@@ -79,9 +83,10 @@ export default function AdmissionDetail(){
       const localEdits=operations.filter(operation=>operation.entityType==="Application"&&operation.entityId===id&&operation.operationType==="UPDATE_ADMISSION_APPLICATION"&&operation.syncStatus!=="FAILED_TERMINAL");
       const hasLocalEdit=localEdits.length>0;
       if(cached?.value&&(!navigator.onLine||hasLocalEdit)){
-        const latest=hasLocalEdit?withQueuedAdmissionEdit(cached.value,localEdits[localEdits.length-1].payload):cached.value;
+        const latest=hasLocalEdit?mergeQueuedAdmissionEdit(cached.value,localEdits[localEdits.length-1].payload):cached.value;
+        if(generation!==loadGeneration.current)return;
         setApp(latest);
-        if(!editing)setEditForm(buildEditForm(latest));
+        if(!editingRef.current)setEditForm(buildEditForm(latest));
         if(hasLocalEdit)await setOfflineCache(`admission:${id}`,latest).catch(()=>{});
         if(hasLocalEdit){setPendingEditOperationKey(localEdits[localEdits.length-1].operationKey);setSuccess("This device has saved changes waiting to synchronize.");}
         return;
@@ -89,22 +94,25 @@ export default function AdmissionDetail(){
       const r=await fetch(`/api/admissions/${id}`,{cache:"no-store"});
       const d=await r.json().catch(()=>null);
       if(!r.ok){
-        if(r.status>=500&&cached?.value){setApp(cached.value);if(!editing)setEditForm(buildEditForm(cached.value));return;}
+        if(r.status>=500&&cached?.value){if(generation!==loadGeneration.current)return;setApp(cached.value);if(!editingRef.current)setEditForm(buildEditForm(cached.value));return;}
         throw Error(d?.error||"Unable to load application");
       }
-      const latest=hasLocalEdit?withQueuedAdmissionEdit(d,localEdits[localEdits.length-1].payload):d;
+      const latest=hasLocalEdit?mergeQueuedAdmissionEdit(d,localEdits[localEdits.length-1].payload):d;
+      if(generation!==loadGeneration.current)return;
       setApp(latest);
       await setOfflineCache(`admission:${id}`,latest).catch(()=>{});
-     if(!editing)setEditForm(buildEditForm(latest));
+     if(!editingRef.current)setEditForm(buildEditForm(latest));
     }
     catch(e){
+      if(generation!==loadGeneration.current)return;
       const cached=await getOfflineCache<Application>(`admission:${id}`).catch(()=>null);
-      if(cached?.value&&(!navigator.onLine||e instanceof TypeError)){setApp(cached.value);if(!editing)setEditForm(buildEditForm(cached.value));}
+      if(generation!==loadGeneration.current)return;
+      if(cached?.value&&(!navigator.onLine||e instanceof TypeError)){setApp(cached.value);if(!editingRef.current)setEditForm(buildEditForm(cached.value));}
       else setError(e instanceof Error?e.message:"Unable to load application");
     }
-   finally{setLoading(false)}
- }
- useEffect(()=>{if(id)load()},[id]);
+   finally{if(generation===loadGeneration.current)setLoading(false)}
+ },[id]);
+ useEffect(()=>{if(id)void load()},[id,load]);
 
  function buildEditForm(application:Application):EditForm{
    const legacy=application.formData&&typeof application.formData==="object"&&!Array.isArray(application.formData)?application.formData:{};
@@ -121,13 +129,6 @@ export default function AdmissionDetail(){
    next.remarks=application.remarks||next.remarks;
    next.photoDataUrl=application.photoDataUrl||next.photoDataUrl;
    return next;
- }
- function withQueuedAdmissionEdit(application:Application,operationPayload:unknown):Application{
-   if(!operationPayload||typeof operationPayload!=="object"||Array.isArray(operationPayload))return application;
-   const payload=operationPayload as Record<string,unknown>;
-   const sessionName=typeof payload.sessionName==="string"?payload.sessionName:application.session?.name;
-   const formData=payload.formData&&typeof payload.formData==="object"&&!Array.isArray(payload.formData)?payload.formData as Record<string,unknown>:application.formData;
-   return {...application,...payload,session:{...application.session,name:sessionName},formData};
  }
  const updateEdit=(key:keyof EditForm,value:string)=>setEditForm(current=>({...current,[key]:value}));
  function handleEditPhoto(file:File|null){
@@ -171,6 +172,7 @@ export default function AdmissionDetail(){
           const response=await fetch(`/api/admissions/${id}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({application:payload}),signal:controller.signal});
           const data=await response.json().catch(()=>null);
           if(response.ok&&data){
+            loadGeneration.current+=1;
             setApp(data);
             setEditForm(buildEditForm(data));
             setEditing(false);
@@ -195,6 +197,7 @@ export default function AdmissionDetail(){
        operationType:"UPDATE_ADMISSION_APPLICATION",
        payload
      });
+      loadGeneration.current+=1;
      setPendingEditOperationKey(operationKey);
       const updated={...app!,studentName:payload.studentName,dateOfBirth:payload.dateOfBirth,gender:payload.gender,guardianName:payload.guardianName,guardianPhone:payload.guardianPhone,guardianEmail:payload.guardianEmail,desiredClass:payload.desiredClass,previousSchool:payload.previousSchool,remarks:payload.remarks,photoDataUrl:payload.photoDataUrl,session:{...app!.session,name:payload.sessionName},formData:payload.formData};
       setApp(updated);
@@ -225,7 +228,7 @@ export default function AdmissionDetail(){
    window.addEventListener("aghaaz:sync-complete",onSync);
    void onSync();
    return()=>window.removeEventListener("aghaaz:sync-complete",onSync);
- },[pendingEditOperationKey]);
+ },[load,pendingEditOperationKey]);
  
  async function changeStatus(status:string){
    if(!app)return;
