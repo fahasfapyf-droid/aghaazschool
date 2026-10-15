@@ -266,15 +266,29 @@ export async function POST(request: Request) {
   const accepted: string[] = [];
   const duplicate: string[] = [];
   const applied: string[] = [];
-  const results: { operationKey: string; operationType: string; applicationId: string; applicationNumber?: string; enquiryNumber?: string }[] = [];
+  const results: { operationKey: string; operationType: string; applicationId?: string; applicationNumber?: string; enquiryNumber?: string; alreadyApplied?: boolean }[] = [];
   const failed: { operationKey: string; error: string; failureClass: "FAILED_TERMINAL" | "FAILED_RETRYABLE" }[] = [];
 
   for (const op of body.data.operations) {
     let existing = await prisma.syncOperation.findUnique({ where: { operationKey: op.operationKey } });
 
+    if (existing && existing.deviceId !== device.id) return NextResponse.json({ error: "Operation does not belong to this registered device." }, { status: 403 });
+    if (existing && (existing.entityType !== op.entityType || existing.entityId !== op.entityId || existing.operationType !== op.operationType)) {
+      return NextResponse.json({ error: "Operation identity does not match the stored synchronization record." }, { status: 409 });
+    }
+
     if (existing?.status === "APPLIED") {
       duplicate.push(op.operationKey);
       applied.push(op.operationKey);
+      const application = op.operationType === "CREATE_ADMISSION"
+        ? await prisma.application.findUnique({ where: { syncOperationKey: op.operationKey }, select: { id: true, applicationNumber: true, enquiry: { select: { enquiryNumber: true } } } })
+        : await prisma.application.findUnique({ where: { id: op.entityId }, select: { id: true, applicationNumber: true, enquiry: { select: { enquiryNumber: true } } } });
+      results.push({
+        operationKey: op.operationKey,
+        operationType: op.operationType,
+        ...(application ? { applicationId: application.id, applicationNumber: application.applicationNumber, enquiryNumber: application.enquiry?.enquiryNumber } : {}),
+        alreadyApplied: true,
+      });
       continue;
     }
 
@@ -327,7 +341,7 @@ export async function POST(request: Request) {
       const result = await prisma.$transaction(async tx => {
         const txOperation = await tx.syncOperation.findUnique({ where: { operationKey: op.operationKey } });
         if (!txOperation) throw new Error("SYNC_OPERATION_NOT_FOUND");
-        if (txOperation.status === "APPLIED") return { result: null };
+        if (txOperation.status === "APPLIED") return { result: { applicationId: op.entityId, operationType: op.operationType, alreadyApplied: true } };
         const appliedResult = await applyOperation(tx, op, user.id);
         await tx.syncOperation.update({ where: { id: txOperation.id }, data: { status: "APPLIED", appliedAt: new Date(), errorCode: null, errorMessage: null } });
         return { result: appliedResult };
