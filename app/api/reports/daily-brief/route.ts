@@ -37,10 +37,10 @@ export async function GET(request: NextRequest) {
         },
       }),
       prisma.$queryRawUnsafe<Array<{ id: string; title: string; eventType: string; startAt: Date }>>(
-        `SELECT "id","title","eventType","startAt"
+        `SELECT "id","title","eventType","startDate" AS "startAt"
          FROM "SchoolEvent"
-         WHERE "status"='PUBLISHED' AND "startAt">=$1 AND "startAt"<$2
-         ORDER BY "startAt" ASC LIMIT 5`,
+         WHERE "status"='PUBLISHED' AND "startDate">=$1 AND "startDate"<$2
+         ORDER BY "startDate" ASC LIMIT 5`,
         startOfDay,
         nextWeek,
       ).catch(() => []),

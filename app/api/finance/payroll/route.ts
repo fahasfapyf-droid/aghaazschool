@@ -8,7 +8,7 @@ import { requestAuditContext, writeAuditLog } from "@/lib/audit";
 const roles = ["SUPER_ADMIN", "ADMIN", "ACCOUNTANT"] as const;
 const schema = z.object({ payrollMonth: z.string().min(1), staffId: z.string().trim().min(1).optional(), staffName: z.string().trim().min(1).max(200).optional(), grossAmount: z.coerce.number().positive(), adjustment: z.coerce.number().min(0).default(0), netAmount: z.coerce.number().positive(), paymentStatus: z.nativeEnum(FinanceStatus), paymentDate: z.string().optional(), paymentMethod: z.nativeEnum(FinancePaymentMethod).optional(), notes: z.string().trim().max(1000).optional() });
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!roleAllowed(user.role, [...roles])) return NextResponse.json({ error: "Forbidden" }, { status: 403 });

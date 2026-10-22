@@ -36,7 +36,7 @@ export async function GET() {
         take: 100,
       }),
       prisma.result.findMany({
-        where: { createdAt: { gte: monthStart }, student: { status: "active" } },
+        where: { createdAt: { gte: monthStart }, student: { status: { in: ["ACTIVE", "ENROLLED"] } } },
         select: { studentId: true, marks: true, grade: true, paper: { select: { subject: true, passMarks: true, maxMarks: true } }, student: { select: { application: { select: { studentName: true } } } } },
         orderBy: { createdAt: "desc" },
         take: 500,

@@ -6,7 +6,6 @@ import { randomUUID } from "crypto";
 
 const READ_ROLES = ["SUPER_ADMIN", "ADMIN", "TEACHER"] as const;
 const WRITE_ROLES = ["SUPER_ADMIN", "ADMIN", "TEACHER"] as const;
-const CURRICULUM_STATUSES = ["DRAFT", "PUBLISHED", "ARCHIVED"] as const;
 const PLAN_STATUSES = ["PLANNED", "IN_PROGRESS", "COMPLETED", "SKIPPED"] as const;
 
 type CurriculumRow = { id: string; academicSessionId: string; academicGradeId: string; academicSubjectId: string; title: string; description: string | null; status: string; createdBy: string | null; createdAt: Date; updatedAt: Date };
@@ -59,7 +58,6 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const action = clean(body.action, 30);
-    const id = clean(body.id, 100);
     const user = a.user;
     if (!["CURRICULUM","TOPIC","PLAN"].includes(action)) return NextResponse.json({ error: "Invalid curriculum action." }, { status: 400 });
     if (action === "CURRICULUM") {

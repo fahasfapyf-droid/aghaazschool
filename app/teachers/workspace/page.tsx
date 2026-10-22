@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 type Teacher = { id: string; employeeNumber: string; name: string; email: string | null };
 type Schedule = { id: string; dayOfWeek: string; startTime: string; endTime: string; period: number; room: string | null; gradeName: string | null; sectionName: string | null; subjectName: string | null };
@@ -20,7 +20,7 @@ export default function TeacherWorkspacePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  async function load(id = teacherId) {
+  const load = useCallback(async function load(id: string) {
     setLoading(true); setError("");
     try {
       const response = await fetch(`/api/teachers/workspace${id ? `?staffId=${encodeURIComponent(id)}` : ""}`);
@@ -30,9 +30,9 @@ export default function TeacherWorkspacePage() {
       setTeacherId(payload.staff.id);
     } catch (e) { setError(e instanceof Error ? e.message : "Unable to load teacher workspace."); }
     finally { setLoading(false); }
-  }
+  }, []);
 
-  useEffect(() => { load(""); }, []);
+  useEffect(() => { load(""); }, [load]);
 
   const recorded = data?.classes.reduce((n, x) => n + x.attendanceRecorded, 0) || 0;
   const totalStudents = data?.classes.reduce((n, x) => n + x.students, 0) || 0;

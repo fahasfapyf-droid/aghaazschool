@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useCallback, FormEvent, useEffect, useMemo, useState } from "react";
 
 type Option={id:string;name:string;code?:string;sessionId?:string;gradeId?:string;employeeNumber?:string};
 type Entry={id:string;dayOfWeek:string;className:string;section:string|null;subject:string;teacher:string;room:string|null;startTime:string;endTime:string;period:number;sessionName:string|null;gradeName:string|null;sectionName:string|null;subjectName:string|null;teacherName:string|null;academicSessionId:string|null;academicGradeId:string|null;academicSectionId:string|null;academicSubjectId:string|null;teacherStaffId:string|null};
@@ -17,8 +17,8 @@ export default function TimetablePage(){
  const sections=useMemo(()=>structure.sections.filter(x=>!form.academicGradeId||x.gradeId===form.academicGradeId),[structure.sections,form.academicGradeId]);
  useEffect(()=>{if(form.academicGradeId&&!grades.some(x=>x.id===form.academicGradeId))setForm(x=>({...x,academicGradeId:"",academicSectionId:""}));},[grades,form.academicGradeId]);
  useEffect(()=>{if(form.academicSectionId&&!sections.some(x=>x.id===form.academicSectionId))setForm(x=>({...x,academicSectionId:""}));},[sections,form.academicSectionId]);
- const load=()=>{setLoading(true);const p=new URLSearchParams();if(sessionFilter)p.set("sessionId",sessionFilter);if(teacherFilter)p.set("teacherStaffId",teacherFilter);fetch(`/api/timetable${p.toString()?`?${p}`:""}`).then(async r=>{const d=await r.json();if(!r.ok)throw new Error(d.error||"Unable to load timetable");return d}).then(setItems).catch(e=>setError(e instanceof Error?e.message:"Unable to load timetable")).finally(()=>setLoading(false));};
- useEffect(()=>{load()},[sessionFilter,teacherFilter]);
+ const load=useCallback(()=>{setLoading(true);const p=new URLSearchParams();if(sessionFilter)p.set("sessionId",sessionFilter);if(teacherFilter)p.set("teacherStaffId",teacherFilter);fetch(`/api/timetable${p.toString()?`?${p}`:""}`).then(async r=>{const d=await r.json();if(!r.ok)throw new Error(d.error||"Unable to load timetable");return d}).then(setItems).catch(e=>setError(e instanceof Error?e.message:"Unable to load timetable")).finally(()=>setLoading(false));}, [sessionFilter, teacherFilter]);
+ useEffect(()=>{load()},[load]);
  async function create(e:FormEvent){e.preventDefault();setSaving(true);setError("");try{const r=await fetch("/api/timetable",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(form)});const d=await r.json();if(!r.ok)throw new Error(d.error||"Unable to create entry");setForm(initial);load();}catch(e){setError(e instanceof Error?e.message:"Unable to save entry")}finally{setSaving(false)}}
  async function remove(id:string){if(!confirm("Delete this timetable entry?"))return;const r=await fetch(`/api/timetable?id=${id}`,{method:"DELETE"});if(!r.ok){const d=await r.json();setError(d.error||"Unable to delete entry");return}setItems(x=>x.filter(i=>i.id!==id));}
  const grouped=days.map(day=>({day,items:items.filter(i=>i.dayOfWeek===day)})).filter(x=>x.items.length);

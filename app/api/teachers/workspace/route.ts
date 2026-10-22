@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
     const sectionIds = [...new Set(todaySchedule.map(x => String(x.academicSectionId || "")).filter(Boolean))];
     let classes: Array<Record<string, unknown>> = [];
     if (sectionIds.length) {
-      const students = await prisma.enrollment.findMany({ where: { academicSectionId: { in: sectionIds }, status: "active" }, select: { id: true, academicSectionId: true, application: { select: { studentName: true } } }, orderBy: { application: { studentName: "asc" } } });
+      const students = await prisma.enrollment.findMany({ where: { academicSectionId: { in: sectionIds }, status: { in: ["ACTIVE", "ENROLLED"] } }, select: { id: true, academicSectionId: true, application: { select: { studentName: true } } }, orderBy: { application: { studentName: "asc" } } });
       const ids = students.map(x => x.id);
       const attendance = ids.length ? await prisma.attendance.findMany({ where: { studentId: { in: ids }, date: { gte: start, lte: end } }, select: { studentId: true, status: true } }) : [];
       const attendanceByStudent = new Map(attendance.map(x => [x.studentId, x.status]));

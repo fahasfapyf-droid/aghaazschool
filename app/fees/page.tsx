@@ -1,12 +1,13 @@
 "use client";
+import { toEnrollmentStudents } from "@/lib/student-options";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
-type Student={id:string;application?:{studentName?:string};enrollment?:{id:string;className?:string;section?:string}};
+type Student={id:string;application?:{studentName?:string};enrollment?:{id:string;className?:string;section?:string|null}};
 type Invoice={id:string;invoiceNumber:string;feeType:string;amount:number;discount:number;netAmount:number;dueDate:string;status:string;student:{application:{studentName?:string};admissionNumber?:string;className?:string};payments:{amount:number}[]};
 
 export default function FeesPage(){const [data,setData]=useState<Invoice[]>([]),[students,setStudents]=useState<Student[]>([]),[q,setQ]=useState(""),[loading,setLoading]=useState(true),[error,setError]=useState(""),[studentId,setStudentId]=useState(""),[feeType,setFeeType]=useState("Tuition Fee"),[amount,setAmount]=useState(""),[discount,setDiscount]=useState("0"),[dueDate,setDueDate]=useState(""),[paymentInvoice,setPaymentInvoice]=useState(""),[paymentAmount,setPaymentAmount]=useState(""),[paymentMethod,setPaymentMethod]=useState("Cash"),[saving,setSaving]=useState(false);
 const load=()=>fetch("/api/fees").then(async r=>{const d=await r.json();if(!r.ok)throw Error(d.error);setData(d)}).catch(e=>setError(e.message||"Unable to load fees"));
-useEffect(()=>{Promise.all([load(),fetch("/api/students").then(r=>r.json()).then(setStudents).catch(()=>setError("Unable to load students."))]).finally(()=>setLoading(false))},[]);
+useEffect(()=>{Promise.all([load(),fetch("/api/students").then(r=>r.json()).then(data=>setStudents(toEnrollmentStudents(data))).catch(()=>setError("Unable to load students."))]).finally(()=>setLoading(false))},[]);
 async function createInvoice(e:FormEvent){e.preventDefault();setError("");setSaving(true);try{const r=await fetch("/api/fees",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({studentId,feeType,amount,discount,dueDate})});const d=await r.json();if(!r.ok)throw Error(d.error||"Unable to create invoice");setStudentId("");setAmount("");setDiscount("0");setDueDate("");await load()}catch(e){setError(e instanceof Error?e.message:"Unable to create invoice")}finally{setSaving(false)}}
 async function recordPayment(e:FormEvent){e.preventDefault();setError("");setSaving(true);try{const r=await fetch("/api/fees",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"payment",invoiceId:paymentInvoice,amount:paymentAmount,paymentMethod})});const d=await r.json();if(!r.ok)throw Error(d.error||"Unable to record payment");setPaymentInvoice("");setPaymentAmount("");await load()}catch(e){setError(e instanceof Error?e.message:"Unable to record payment")}finally{setSaving(false)}}
 const filtered=useMemo(()=>data.filter(x=>[x.invoiceNumber,x.feeType,x.student?.application?.studentName,x.student?.admissionNumber].join(" ").toLowerCase().includes(q.toLowerCase())),[data,q]);const billed=data.reduce((s,x)=>s+Number(x.netAmount),0),collected=data.reduce((s,x)=>s+x.payments.reduce((a,p)=>a+Number(p.amount),0),0);

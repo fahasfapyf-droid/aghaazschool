@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 type Structure = { sessions: { id: string; name: string }[]; grades: { id: string; name: string; sessionId: string }[]; subjects: { id: string; name: string; code: string }[]; sections: { id: string; name: string; gradeId: string }[]; staff: { id: string; name: string; employeeNumber: string; staffType: string }[] };
 type Topic = { id: string; title: string; description: string | null; displayOrder: number; objectives: string | null; estimatedPeriods: number; plans: { id: string; academicSectionId: string; teacherStaffId: string; status: string; plannedStartDate: string | null; plannedEndDate: string | null; notes: string | null; section: { id: string; name: string } | null; teacher: { id: string; name: string } | null }[] };
@@ -15,8 +15,8 @@ export default function CurriculumPage() {
   const [selectedCurriculum, setSelectedCurriculum] = useState(""); const [selectedTopic, setSelectedTopic] = useState(""); const [startDate, setStartDate] = useState(""); const [endDate, setEndDate] = useState("");
   const [message, setMessage] = useState(""); const [error, setError] = useState(""); const [loading, setLoading] = useState(true);
 
-  async function load() { setLoading(true); try { const params = new URLSearchParams(); if (sessionId) params.set("sessionId", sessionId); if (gradeId) params.set("gradeId", gradeId); if (subjectId) params.set("subjectId", subjectId); if (sectionId) params.set("sectionId", sectionId); if (teacherId) params.set("teacherId", teacherId); const [s, c] = await Promise.all([fetch("/api/academic-structure"), fetch(`/api/curriculum?${params.toString()}`)]); const sj = await s.json(); const cj = await c.json(); if (!s.ok) throw new Error(sj.error); if (!c.ok) throw new Error(cj.error); setStructure({ sessions: sj.sessions || [], grades: sj.grades || [], subjects: sj.subjects || [], sections: sj.sections || [], staff: (sj.staff || []).filter((x: Structure["staff"][number]) => x.staffType === "TEACHER") }); setCurricula(cj.curricula || []); } catch (e) { setError(e instanceof Error ? e.message : "Unable to load curriculum."); } finally { setLoading(false); } }
-  useEffect(() => { void load(); }, [sessionId, gradeId, subjectId, sectionId, teacherId]);
+  const load = useCallback(async function load() { setLoading(true); try { const params = new URLSearchParams(); if (sessionId) params.set("sessionId", sessionId); if (gradeId) params.set("gradeId", gradeId); if (subjectId) params.set("subjectId", subjectId); if (sectionId) params.set("sectionId", sectionId); if (teacherId) params.set("teacherId", teacherId); const [s, c] = await Promise.all([fetch("/api/academic-structure"), fetch(`/api/curriculum?${params.toString()}`)]); const sj = await s.json(); const cj = await c.json(); if (!s.ok) throw new Error(sj.error); if (!c.ok) throw new Error(cj.error); setStructure({ sessions: sj.sessions || [], grades: sj.grades || [], subjects: sj.subjects || [], sections: sj.sections || [], staff: (sj.staff || []).filter((x: Structure["staff"][number]) => x.staffType === "TEACHER") }); setCurricula(cj.curricula || []); } catch (e) { setError(e instanceof Error ? e.message : "Unable to load curriculum."); } finally { setLoading(false); } }, [sessionId, gradeId, subjectId, sectionId, teacherId]);
+  useEffect(() => { void load(); }, [load]);
   const grades = structure?.grades.filter(x => !sessionId || x.sessionId === sessionId) || [];
   const sections = structure?.sections.filter(x => x.gradeId === gradeId) || [];
   const active = curricula.find(x => x.id === selectedCurriculum);

@@ -1,13 +1,13 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 type Homework={id:string;title:string;description:string;className:string;section?:string|null;subject:string;teacher:string;assignedDate:string;dueDate:string;status:string;_count:{submissions:number}};
 const initial={title:"",description:"",className:"",section:"",subject:"",teacher:"",assignedDate:new Date().toISOString().slice(0,10),dueDate:"",status:"PUBLISHED"};
 
 export default function HomeworkPage(){
  const [items,setItems]=useState<Homework[]>([]); const [loading,setLoading]=useState(true); const [saving,setSaving]=useState(false); const [error,setError]=useState(""); const [filter,setFilter]=useState(""); const [form,setForm]=useState(initial);
- const load=()=>{setLoading(true);const q=filter?`?class=${encodeURIComponent(filter)}`:"";fetch(`/api/homework${q}`).then(async r=>{const d=await r.json();if(!r.ok)throw new Error(d.error||"Unable to load homework");return d}).then(setItems).catch(e=>setError(e.message)).finally(()=>setLoading(false));};
- useEffect(()=>{load()},[filter]);
+ const load=useCallback(()=>{setLoading(true);const q=filter?`?class=${encodeURIComponent(filter)}`:"";fetch(`/api/homework${q}`).then(async r=>{const d=await r.json();if(!r.ok)throw new Error(d.error||"Unable to load homework");return d}).then(setItems).catch(e=>setError(e.message)).finally(()=>setLoading(false));}, [filter]);
+ useEffect(()=>{load()},[load]);
  async function create(e:React.FormEvent){e.preventDefault();setSaving(true);setError("");try{const r=await fetch("/api/homework",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(form)});const d=await r.json();if(!r.ok)throw new Error(d.error||"Unable to create homework");setForm({...initial,assignedDate:new Date().toISOString().slice(0,10)});load()}catch(e){setError(e instanceof Error?e.message:"Unable to save homework")}finally{setSaving(false)}}
  async function close(id:string){const r=await fetch(`/api/homework?id=${id}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({status:"CLOSED"})});if(!r.ok){const d=await r.json();setError(d.error||"Unable to update homework");return}load()}
  async function remove(id:string){if(!confirm("Delete this homework assignment?"))return;const r=await fetch(`/api/homework?id=${id}`,{method:"DELETE"});if(!r.ok){const d=await r.json();setError(d.error||"Unable to delete homework");return}setItems(x=>x.filter(i=>i.id!==id))}

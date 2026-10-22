@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, roleAllowed } from "@/lib/auth";
 import { getTeacherSectionIds } from "@/lib/student-access";
@@ -12,7 +12,7 @@ type SupportRow = {
   failingResults: number; overdueHomework: number; openBehaviour: number; seriousBehaviour: number;
 };
 
-export async function GET(_request: NextRequest) {
+export async function GET() {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   if (!roleAllowed(user.role, [...ROLES])) return NextResponse.json({ error: "Forbidden" }, { status: 403 });

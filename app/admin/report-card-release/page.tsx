@@ -1,4 +1,5 @@
 "use client";
+import { toEnrollmentStudents } from "@/lib/student-options";
 
 import { useEffect, useState } from "react";
 
@@ -18,7 +19,7 @@ export default function ReportCardReleasePage() {
       .then(async response => {
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Unable to load students");
-        setStudents(data);
+        setStudents(toEnrollmentStudents(data));
       })
       .catch(error => setError(error instanceof Error ? error.message : "Unable to load students"));
   }, []);

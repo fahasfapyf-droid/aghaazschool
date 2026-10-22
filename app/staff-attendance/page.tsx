@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
 type Staff = { id: string; employeeNumber: string; name: string; designation: string; staffType: string };
@@ -25,7 +25,7 @@ export default function StaffAttendancePage() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  async function load(nextMonth = month) {
+  const load = useCallback(async function load(nextMonth = month) {
     setLoading(true); setError("");
     try {
       const response = await fetch(`/api/staff-attendance?month=${encodeURIComponent(nextMonth)}${staffId ? `&staffId=${encodeURIComponent(staffId)}` : ""}`);
@@ -35,9 +35,9 @@ export default function StaffAttendancePage() {
       if (!staffId && payload.staff.length === 1) setStaffId(payload.staff[0].id);
     } catch (e) { setError(e instanceof Error ? e.message : "Unable to load staff attendance."); }
     finally { setLoading(false); }
-  }
+  }, [month, staffId]);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [load]);
   const selected = useMemo(() => data?.staff.find(x => x.id === staffId), [data, staffId]);
   const selectedRecord = useMemo(() => data?.attendance.find(x => x.staffId === staffId && x.date === date), [data, staffId, date]);
 
@@ -89,7 +89,7 @@ export default function StaffAttendancePage() {
     </section>
 
     <section className="applications-card">
-      <div className="table-toolbar"><div><h2>Attendance history</h2><p>Use the month and staff filters to inspect records.</p></div><div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><input className="input" type="month" value={month} onChange={e => { setMonth(e.target.value); load(e.target.value); }} /><select className="input" value={staffId} onChange={e => { setStaffId(e.target.value); load(month); }}><option value="">All staff</option>{data?.staff.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select></div></div>
+      <div className="table-toolbar"><div><h2>Attendance history</h2><p>Use the month and staff filters to inspect records.</p></div><div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><input className="input" type="month" value={month} onChange={e => { setMonth(e.target.value); }} /><select className="input" value={staffId} onChange={e => { setStaffId(e.target.value); }}><option value="">All staff</option>{data?.staff.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select></div></div>
       {loading ? <div className="empty-state">Loading attendance…</div> : !data?.attendance.length ? <div className="empty-state">No staff attendance records for this month.</div> : <div className="table-wrap"><table><thead><tr><th>Date</th><th>Staff</th><th>Status</th><th>Remarks</th></tr></thead><tbody>{data.attendance.map(x => <tr key={x.id}><td>{new Date(`${x.date}T00:00:00`).toLocaleDateString()}</td><td><strong>{x.staffName}</strong><small>{x.employeeNumber} · {x.designation}</small></td><td><span className="status-badge">{labels[x.status] || x.status}</span></td><td>{x.remarks || "—"}</td></tr>)}</tbody></table></div>}
     </section>
   </main>;

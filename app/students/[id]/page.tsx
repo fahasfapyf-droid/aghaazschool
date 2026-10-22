@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { getOfflineCache, queueOfflineOperation, setOfflineCache } from "@/lib/offline-sync";
 
 type AcademicSession={id:string;name:string;startDate:string;endDate:string};
@@ -25,8 +25,8 @@ const displayReferenceValue=(v:unknown)=>{
 
 export default function Student360({params}:{params:Promise<{id:string}>}){
  const[s,setS]=useState<S|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState(""),[editing,setEditing]=useState(false),[editSaving,setEditSaving]=useState(false),[editError,setEditError]=useState(""),[editForm,setEditForm]=useState<Record<string,any>>({}),[sessions,setSessions]=useState<AcademicSession[]>([]),[grades,setGrades]=useState<Grade[]>([]),[sections,setSections]=useState<Section[]>([]),[action,setAction]=useState<"PROMOTE"|"TRANSFER"|"WITHDRAW"|"LEFT"|"EXPEL"|"REACTIVATE"|"READMIT"|null>(null),[sessionId,setSessionId]=useState(""),[gradeId,setGradeId]=useState(""),[sectionId,setSectionId]=useState(""),[note,setNote]=useState(""),[saving,setSaving]=useState(false),[actionError,setActionError]=useState(""),[readmitResult,setReadmitResult]=useState<{id:string;grNumber:string;admissionNumber:string}|null>(null);
- const load=async()=>{const{id}=await params;try{const[r,a]=await Promise.all([fetch(`/api/students/${id}`),fetch("/api/academic-structure")]);const[d,structure]=await Promise.all([r.json(),a.json()]);if(!r.ok)throw Error(d.error||"Unable to load student");setS(d);await setOfflineCache(`student:${id}`,d);if(a.ok){setSessions(structure.sessions||[]);setGrades(structure.grades||[]);setSections(structure.sections||[]);await setOfflineCache("academic-structure",structure);}}catch(e){const cached=await getOfflineCache<S>(`student:${id}`);if(cached){setS(cached.value);setError(`Offline mode · showing student data cached ${new Date(cached.savedAt).toLocaleString()}`);}else{setError(e instanceof Error?e.message:"Unable to load student");}}finally{setLoading(false)}};
- useEffect(()=>{load()},[params]);
+ const load=useCallback(async()=>{const{id}=await params;try{const[r,a]=await Promise.all([fetch(`/api/students/${id}`),fetch("/api/academic-structure")]);const[d,structure]=await Promise.all([r.json(),a.json()]);if(!r.ok)throw Error(d.error||"Unable to load student");setS(d);await setOfflineCache(`student:${id}`,d);if(a.ok){setSessions(structure.sessions||[]);setGrades(structure.grades||[]);setSections(structure.sections||[]);await setOfflineCache("academic-structure",structure);}}catch(e){const cached=await getOfflineCache<S>(`student:${id}`);if(cached){setS(cached.value);setError(`Offline mode · showing student data cached ${new Date(cached.savedAt).toLocaleString()}`);}else{setError(e instanceof Error?e.message:"Unable to load student");}}finally{setLoading(false)}}, [params]);
+ useEffect(()=>{load()},[load]);
  const currentGrades=useMemo(()=>grades.filter(g=>!sessionId||g.sessionId===sessionId),[grades,sessionId]);
  const startEditing=()=>{if(!s)return;setEditError("");setEditForm({studentName:s.studentName||"",dateOfBirth:s.dateOfBirth?new Date(s.dateOfBirth).toISOString().slice(0,10):"",gender:s.gender||"",guardianName:s.guardianName||"",guardianPhone:s.guardianPhone||"",guardianEmail:s.guardianEmail||"",previousSchool:s.previousSchool||"",legacy:{...(s.formData?.legacy||{})}});setEditing(true)};
  const updateEdit=(key:string,value:any)=>setEditForm(x=>({...x,[key]:value}));

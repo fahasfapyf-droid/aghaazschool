@@ -376,7 +376,7 @@ async function findIdentity(tx: Prisma.TransactionClient, row: PreparedEnrollmen
   return { id: identity.id, source: "NEW" as const };
 }
 
-async function authorize(request: NextRequest) {
+async function authorize() {
   const user = await getCurrentUser();
   if (!user) throw new Error("AUTHENTICATION_REQUIRED");
   if (!roleAllowed(user.role, [...roles])) throw new Error("ADMIN_REQUIRED");
@@ -385,7 +385,7 @@ async function authorize(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const user = await authorize(request);
+    const user = await authorize();
     const contentType = request.headers.get("content-type") || "";
 
     if (contentType.includes("application/json")) {
