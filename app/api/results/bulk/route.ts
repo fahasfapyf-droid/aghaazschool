@@ -33,6 +33,7 @@ export async function POST(req: NextRequest) {
     if (students.some(student => student.academicSessionId !== paper.exam.sessionId)) return NextResponse.json({ error: "All selected students must belong to the examination's academic session" }, { status: 400 });
     const releasedStudents = await Promise.all(students.map(async student => ({ id: student.id, released: student.academicSessionId ? await hasReportCardRelease(student.id, student.academicSessionId) : false })));
     const blocked = releasedStudents.filter(student => student.released).map(student => student.id);
+    if (blocked.length) return NextResponse.json({ error: "One or more official report cards have been released and their results are immutable.", studentIds: blocked }, { status: 409 });
     const studentMap = new Map(students.map(student => [student.id, student]));
     const maxMarks = Number(paper.maxMarks);
     const gradingBands = await getGradingBands(paper.exam.sessionId);

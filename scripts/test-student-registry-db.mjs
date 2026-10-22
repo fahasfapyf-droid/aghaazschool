@@ -6,6 +6,7 @@ const sessionId = `smoke-${token}`;
 const applicationId = `smoke-${token}-app`;
 const enrollmentId = `smoke-${token}-enr`;
 const registryId = `smoke-${token}-reg`;
+const studentIdentityId = `smoke-${token}-identity`;
 
 async function main() {
   const sessionName = `CI Smoke ${token}`;
@@ -17,7 +18,8 @@ async function main() {
       const first = `${config[0].prefix}${String(config[0].nextNumber).padStart(config[0].padding, "0")}`;
       await tx.$executeRawUnsafe(`UPDATE "StudentRegistryConfig" SET "nextNumber"="nextNumber"+1,"updatedAt"=CURRENT_TIMESTAMP WHERE "id"='default'`);
       await tx.application.create({ data: { id: applicationId, applicationNumber: `SMOKE-${token}`, sessionId, desiredClass: "Smoke Test", studentName: "CI Registry Smoke Test", guardianName: "CI Guardian", guardianPhone: "0000000000", status: "ENROLLED" } });
-      await tx.enrollment.create({ data: { id: enrollmentId, applicationId, studentId: `SMOKE-${token}`, admissionNumber: `SMOKE-${token}`, className: "Smoke Test" } });
+      await tx.studentIdentity.create({ data: { id: studentIdentityId } });
+      await tx.enrollment.create({ data: { id: enrollmentId, applicationId, studentIdentityId, studentId: `SMOKE-${token}`, admissionNumber: `SMOKE-${token}`, className: "Smoke Test" } });
       await tx.$executeRawUnsafe(`INSERT INTO "StudentRegistry" ("id","enrollmentId","grNumber") VALUES ($1,$2,$3)`, registryId, enrollmentId, first);
       const field = await tx.$queryRawUnsafe(`SELECT "id","key" FROM "StudentCustomFieldDefinition" WHERE "active"=true ORDER BY "displayOrder","key" LIMIT 1`);
       if (!field[0]) throw new Error("No active student custom field definition is seeded");
@@ -32,9 +34,10 @@ async function main() {
   } finally {
     await prisma.$executeRawUnsafe(`DELETE FROM "StudentCustomFieldValue" WHERE "studentRegistryId"=$1`, registryId);
     await prisma.$executeRawUnsafe(`DELETE FROM "StudentRegistry" WHERE "id"=$1`, registryId);
-    await prisma.enrollment.delete({ where: { id: enrollmentId } });
-    await prisma.application.delete({ where: { id: applicationId } });
-    await prisma.academicSession.delete({ where: { id: sessionId } });
+    await prisma.enrollment.deleteMany({ where: { id: enrollmentId } });
+    await prisma.studentIdentity.deleteMany({ where: { id: studentIdentityId } });
+    await prisma.application.deleteMany({ where: { id: applicationId } });
+    await prisma.academicSession.deleteMany({ where: { id: sessionId } });
   }
 }
 

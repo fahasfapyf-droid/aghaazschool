@@ -9,7 +9,7 @@ function decodeBase64url(value: string) {
   return atob(normalized);
 }
 
-async function hmac(value: string) {
+async function hmac() {
   const secret = process.env.AUTH_SECRET;
   if (!secret || secret.length < 32) return null;
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
@@ -21,7 +21,7 @@ export async function verifySessionTokenEdge(token: string | undefined): Promise
   const [encoded, signature] = token.split(".");
   if (!encoded || !signature) return null;
   try {
-    const imported = await hmac(encoded);
+    const imported = await hmac();
     if (!imported) return null;
     const valid = await crypto.subtle.verify(
       "HMAC",

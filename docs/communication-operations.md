@@ -13,7 +13,7 @@ The application does not store provider API keys in the database.
 
 ## Delivery worker
 
-Vercel Cron invokes `/api/communication/process` every five minutes. The worker processes at most 100 queued deliveries per invocation, uses PostgreSQL row locking to avoid duplicate workers, retries transient provider failures, and stops after three attempts.
+The worker at `/api/communication/process` processes at most 100 queued deliveries per invocation, uses PostgreSQL row locking to avoid duplicate workers, retries transient provider failures, and stops after three attempts. Configure a trusted scheduler to invoke it every five minutes with `Authorization: Bearer $CRON_SECRET`. Both cron-authenticated GET and POST are supported. The checked-in Vercel configuration currently schedules the daily brief only; enable the communication schedule after verifying the deployment plan supports the desired frequency.
 
 The worker can also be invoked by an authenticated administrator through the application route.
 

@@ -26,6 +26,12 @@ function isCronAuthorized(request: NextRequest) {
   return Boolean(secret && request.headers.get("authorization") === `Bearer ${secret}`);
 }
 
+// Vercel Cron uses GET; browser/admin processing continues to use POST.
+export async function GET(request: NextRequest) {
+  if (!isCronAuthorized(request)) return NextResponse.json({ error: "Cron authentication required." }, { status: 401 });
+  return POST(request);
+}
+
 export async function POST(request: NextRequest) {
   const cronAuthorized = isCronAuthorized(request);
   const user = cronAuthorized ? null : await getCurrentUser();

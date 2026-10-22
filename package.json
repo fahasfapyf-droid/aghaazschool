@@ -13,6 +13,9 @@
     "test:exam-publishing": "node scripts/verify-exam-publishing-rules.mjs",
     "test:report-card-release": "node scripts/verify-report-card-release-rules.mjs",
     "test:student-registry-db": "node scripts/test-student-registry-db.mjs",
+    "test:calendar-summaries-db": "node scripts/test-calendar-summaries-db.mjs",
+    "test:browser": "node scripts/test-browser.mjs",
+    "test:communication-providers": "node scripts/test-communication-providers.mjs",
     "db:generate": "prisma generate",
     "db:validate": "prisma validate",
     "db:migrate": "prisma migrate dev",
@@ -33,11 +36,12 @@
     "next": "^15.5.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "zod": "^4.0.0",
-    "xlsx": "0.20.3"
+    "xlsx": "0.20.3",
+    "zod": "^4.0.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.1",
+    "@playwright/test": "^1.62.1",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",

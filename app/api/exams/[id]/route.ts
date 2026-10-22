@@ -22,7 +22,7 @@ function grade(marks: number, maxMarks: number) {
 }
 
 async function getPaperReadiness(paper: { id: string; className: string; subject: string; maxMarks: unknown; results: { id: string; studentId: string; marks: unknown; grade: string | null; components: { maxMarks: unknown; marks: unknown }[] }[] }, sessionId: string) {
-  const students = await prisma.enrollment.findMany({ where: { className: paper.className, status: "active", application: { sessionId } }, select: { id: true } });
+  const students = await prisma.enrollment.findMany({ where: { className: paper.className, status: { in: ["ACTIVE", "ENROLLED"] }, academicSessionId: sessionId }, select: { id: true } });
   const expectedIds = new Set(students.map(student => student.id));
   const resultByStudent = new Map(paper.results.filter(result => expectedIds.has(result.studentId)).map(result => [result.studentId, result]));
   const maxMarks = Number(paper.maxMarks);

@@ -90,5 +90,5 @@ export async function GET(request: NextRequest) {
   const positions = new Map<string, number>();
   ranked.forEach(row => positions.set(row.id, ranked.filter(other => other.percentage > row.percentage || (other.percentage === row.percentage && other.obtainedMarks > row.obtainedMarks)).length + 1));
 
-  return NextResponse.json({ session: session.name, className, section, term: "ANNUAL", subjects, rows: rows.map(({ completedSubjects: _completedSubjects, ...row }) => ({ ...row, position: positions.get(row.id) || null })) });
+  return NextResponse.json({ session: session.name, className, section, term: "ANNUAL", subjects, rows: rows.map(({ id, name, admissionNumber, values, totalMarks, obtainedMarks, percentage, grade }) => ({ id, name, admissionNumber, values, totalMarks, obtainedMarks, percentage, grade, position: positions.get(id) || null })) });
 }

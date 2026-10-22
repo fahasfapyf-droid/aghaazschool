@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 type Item = { id: string; title: string; subtitle: string; href: string };
 type Group = { type: string; label: string; items: Item[] };
@@ -12,7 +12,7 @@ export default function SearchPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  async function search(value = query) {
+  const search = useCallback(async function search(value: string) {
     const term = value.trim();
     setError("");
     if (term.length < 2) { setGroups([]); return; }
@@ -26,12 +26,12 @@ export default function SearchPage() {
       setError(e instanceof Error ? e.message : "Unable to search school records.");
       setGroups([]);
     } finally { setLoading(false); }
-  }
+  }, []);
 
   useEffect(() => {
     const initial = new URLSearchParams(window.location.search).get("q") || "";
     if (initial) { setQuery(initial); void search(initial); }
-  }, []);
+  }, [search]);
 
   const resultCount = groups.reduce((sum, group) => sum + group.items.length, 0);
 
@@ -42,7 +42,7 @@ export default function SearchPage() {
     </header>
     {error && <div className="error" role="alert">{error}</div>}
     <section className="panel" style={{ marginTop: 24 }}>
-      <form onSubmit={event => { event.preventDefault(); void search(); }} style={{ display: "flex", gap: 10 }}>
+      <form onSubmit={event => { event.preventDefault(); void search(query); }} style={{ display: "flex", gap: 10 }}>
         <input className="input" autoFocus value={query} onChange={event => setQuery(event.target.value)} placeholder="Student name, guardian, invoice, employee number…" aria-label="Search school records" />
         <button className="button" type="submit" disabled={loading || query.trim().length < 2}>{loading ? "Searching…" : "Search"}</button>
       </form>

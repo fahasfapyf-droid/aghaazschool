@@ -90,7 +90,7 @@ export default function ConnectivityIndicator() {
         reason: result.reason,
         lastSync: result.reason === "ok" ? new Date().toISOString() : s.lastSync,
       }));
-    } catch (error) {
+    } catch {
       const current = await getOfflineState().catch(() => ({ pending: 0, failed: 0, diagnostic: undefined }));
       setState((s) => ({
         ...s,

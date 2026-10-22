@@ -1,4 +1,5 @@
 "use client";
+import { toEnrollmentStudents } from "@/lib/student-options";
 
 import { useEffect, useMemo, useState } from "react";
 
@@ -37,7 +38,8 @@ export default function ReportCards() {
   useEffect(() => {
     fetch("/api/students")
       .then(r => (r.ok ? r.json() : Promise.reject()))
-      .then(list => {
+      .then(data => {
+        const list = toEnrollmentStudents(data);
         setStudents(list);
         const requested = new URLSearchParams(window.location.search).get("studentId") || "";
         if (requested && list.some((student: Student) => student.id === requested)) load(requested);

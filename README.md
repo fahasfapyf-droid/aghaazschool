@@ -55,6 +55,16 @@ If an existing production database was originally created with `prisma db push`,
 
 Do not use `prisma db push` against the production database. All future production schema changes must be committed as versioned migrations under `prisma/migrations/`.
 
+## Database regression checks
+
+To provision the first permanent administrator, set `ADMIN_PASSWORD` securely in the process environment and run `npm run db:seed-admin` against the intended database. `ADMIN_USERNAME` defaults to `admin` and `ADMIN_NAME` to `School Administrator`; `ADMIN_PHONE` and `ADMIN_EMAIL` are optional. The command never prints the password, never overwrites an existing account, and safely supports repeated runs with the same credentials. Do not commit passwords or place them in shell command history.
+
+Run `npm run test:browser` with a running local PostgreSQL server and `DATABASE_URL` set. It creates, migrates and removes its own isolated database, provisions a test administrator and drives admissions, enrollment, attendance, fee collection, three-term exams and official report-card release in Chromium. Stop any existing Next.js development server first because both use `.next`. Install the test browser with `npx playwright install chromium`, or point `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to a compatible installed Chromium executable. `npm run test:communication-providers` validates email/SMS webhook payloads, HMAC signatures and failures against a local mock without contacting real recipients.
+
+Use a disposable PostgreSQL database with all migrations applied. `npm run test:student-registry-db` checks enrollment identity, GR number allocation and custom-field persistence.
+
+With the application running against that same database, run `npm run test:calendar-summaries-db`. Set `TEST_BASE_URL` if it uses a URL other than `http://127.0.0.1:3000`. This checks dashboard and daily-brief preview events, including dates, publication status, seven-day bounds, ordering and result limits. It creates temporary administrator/event fixtures and removes them afterward; it does not deliver notifications. Both database checks run in CI.
+
 ## Vercel deployment
 
 This project is deployed from the `main` branch through its connected Vercel project. Production schema changes must use the versioned Prisma migration workflow documented in [`docs/production-migration.md`](docs/production-migration.md).

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 type Band = { id: string; label: string; minPercentage: number; maxPercentage: number; points: number | null; pass: boolean; displayOrder: number };
 type Scheme = { id: string; sessionId: string | null; name: string; description: string | null; active: boolean; bands: Band[] };
@@ -10,8 +10,8 @@ type Session = { id: string; name: string };
 export default function GradingSettingsPage() {
   const [schemes, setSchemes] = useState<Scheme[]>([]); const [sessions, setSessions] = useState<Session[]>([]); const [sessionId, setSessionId] = useState(""); const [selected, setSelected] = useState(""); const [name, setName] = useState(""); const [description, setDescription] = useState(""); const [label, setLabel] = useState(""); const [min, setMin] = useState(""); const [max, setMax] = useState(""); const [points, setPoints] = useState(""); const [pass, setPass] = useState(true); const [error, setError] = useState(""); const [message, setMessage] = useState("");
 
-  async function load() { try { const [s, g] = await Promise.all([fetch("/api/academic-sessions"), fetch(`/api/grading${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ""}`)]); const sj = await s.json(); const gj = await g.json(); if (!s.ok || !g.ok) throw new Error(gj.error || "Unable to load grading setup."); setSessions(sj.sessions || []); setSchemes(gj.schemes || []); if (!selected && gj.schemes?.[0]) setSelected(gj.schemes[0].id); } catch (e) { setError(e instanceof Error ? e.message : "Unable to load grading setup."); } }
-  useEffect(() => { load(); }, [sessionId]);
+  const load = useCallback(async function load() { try { const [s, g] = await Promise.all([fetch("/api/academic-sessions"), fetch(`/api/grading${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ""}`)]); const sj = await s.json(); const gj = await g.json(); if (!s.ok || !g.ok) throw new Error(gj.error || "Unable to load grading setup."); setSessions(sj.sessions || []); setSchemes(gj.schemes || []); if (gj.schemes?.[0]) setSelected(current => current || gj.schemes[0].id); } catch (e) { setError(e instanceof Error ? e.message : "Unable to load grading setup."); } }, [sessionId]);
+  useEffect(() => { load(); }, [load]);
   const active = schemes.find(x => x.id === selected) || schemes[0];
   async function save(body: Record<string, unknown>, success: string) { setError(""); setMessage(""); const r = await fetch("/api/grading", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); const j = await r.json(); if (!r.ok) return setError(j.error || "Unable to save."); setMessage(success); await load(); return j; }
 

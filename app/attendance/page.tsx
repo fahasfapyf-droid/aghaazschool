@@ -1,11 +1,12 @@
 "use client";
+import { toEnrollmentStudents } from "@/lib/student-options";
 import { useEffect, useMemo, useState } from "react";
 
-type Student={id:string;application?:{studentName?:string;guardianName?:string};enrollment?:{id:string;className?:string;section?:string}}; type Record={id?:string;studentId:string;status:string;remarks?:string};
+type Student={id:string;application?:{studentName?:string;guardianName?:string};enrollment?:{id:string;className?:string;section?:string|null}}; type Record={id?:string;studentId:string;status:string;remarks?:string};
 const states=["PRESENT","ABSENT","LATE","EXCUSED"];
 export default function AttendancePage(){
  const [students,setStudents]=useState<Student[]>([]),[records,setRecords]=useState<Record[]>([]),[date,setDate]=useState(new Date().toISOString().slice(0,10)),[loading,setLoading]=useState(true),[saving,setSaving]=useState(false),[error,setError]=useState("");
- useEffect(()=>{Promise.all([fetch("/api/students").then(r=>r.json()),fetch(`/api/attendance?date=${date}`).then(r=>r.json())]).then(([s,a])=>{setStudents(s);setRecords(a.map((x:Record)=>x))}).catch(e=>setError(e.message||"Unable to load attendance")).finally(()=>setLoading(false))},[date]);
+ useEffect(()=>{Promise.all([fetch("/api/students").then(r=>r.json()),fetch(`/api/attendance?date=${date}`).then(r=>r.json())]).then(([s,a])=>{setStudents(toEnrollmentStudents(s));setRecords(a.map((x:Record)=>x))}).catch(e=>setError(e.message||"Unable to load attendance")).finally(()=>setLoading(false))},[date]);
  const map=useMemo(()=>Object.fromEntries(records.map(r=>[r.studentId,r.status])),[records]);
  const setStatus=(id:string,status:string)=>setRecords(old=>[...old.filter(r=>r.studentId!==id),{studentId:id,status}]);
  async function save(){setSaving(true);setError("");try{const r=await fetch("/api/attendance",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({date,records:students.map(s=>({studentId:s.enrollment?.id||s.id,status:map[s.enrollment?.id||s.id]||"PRESENT"}))})});if(!r.ok)throw Error((await r.json()).error||"Unable to save attendance")}catch(e){setError(e instanceof Error?e.message:"Unable to save attendance")}finally{setSaving(false)}}

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useParams } from "next/navigation";
 import { getLastSyncResults, queueOfflineOperation } from "@/lib/offline-sync";
 
@@ -53,6 +53,23 @@ const emptyEditForm:EditForm={
 };
 
 
+function buildEditForm(application:Application):EditForm{
+   const legacy=application.formData&&typeof application.formData==="object"&&!Array.isArray(application.formData)?application.formData:{};
+   const next={...emptyEditForm,...Object.fromEntries(Object.entries(legacy).map(([key,value])=>[key,String(value??"")]))} as EditForm;
+   next.studentName=application.studentName||next.studentName;
+   next.dateOfBirth=application.dateOfBirth?new Date(application.dateOfBirth).toISOString().slice(0,10):next.dateOfBirth;
+   next.gender=application.gender||next.gender;
+   next.guardianName=application.guardianName||next.guardianName;
+   next.phone1=application.guardianPhone||next.phone1;
+   next.guardianEmail=application.guardianEmail||next.guardianEmail;
+   next.desiredClass=application.desiredClass||next.desiredClass;
+   next.previousSchool=application.previousSchool||next.previousSchool;
+   next.sessionName=application.session?.name||next.sessionName;
+   next.remarks=application.remarks||next.remarks;
+   next.photoDataUrl=application.photoDataUrl||next.photoDataUrl;
+   return next;
+ }
+
 export default function AdmissionDetail(){
  const {id}=useParams<{id:string}>();
  const [app,setApp]=useState<Application|null>(null);
@@ -71,7 +88,7 @@ export default function AdmissionDetail(){
  const [editSaving,setEditSaving]=useState(false);
  const [pendingEditOperationKey,setPendingEditOperationKey]=useState("");
 
- async function load(){
+ const load = useCallback(async function load(){
    setLoading(true); setError("");
    try{
      const r=await fetch(`/api/admissions/${id}`);
@@ -82,25 +99,10 @@ export default function AdmissionDetail(){
    }
    catch(e){setError(e instanceof Error?e.message:"Unable to load application")}
    finally{setLoading(false)}
- }
- useEffect(()=>{if(id)load()},[id]);
+ }, [id, editing]);
+ useEffect(()=>{if(id)load()},[load, id]);
 
- function buildEditForm(application:Application):EditForm{
-   const legacy=application.formData&&typeof application.formData==="object"&&!Array.isArray(application.formData)?application.formData:{};
-   const next={...emptyEditForm,...Object.fromEntries(Object.entries(legacy).map(([key,value])=>[key,String(value??"")]))} as EditForm;
-   next.studentName=application.studentName||next.studentName;
-   next.dateOfBirth=application.dateOfBirth?new Date(application.dateOfBirth).toISOString().slice(0,10):next.dateOfBirth;
-   next.gender=application.gender||next.gender;
-   next.guardianName=application.guardianName||next.guardianName;
-   next.phone1=application.guardianPhone||next.phone1;
-   next.guardianEmail=application.guardianEmail||next.guardianEmail;
-   next.desiredClass=application.desiredClass||next.desiredClass;
-   next.previousSchool=application.previousSchool||next.previousSchool;
-   next.sessionName=application.session?.name||next.sessionName;
-   next.remarks=application.remarks||next.remarks;
-   next.photoDataUrl=application.photoDataUrl||next.photoDataUrl;
-   return next;
- }
+
  const updateEdit=(key:keyof EditForm,value:string)=>setEditForm(current=>({...current,[key]:value}));
  function handleEditPhoto(file:File|null){
    if(!file)return;
@@ -174,8 +176,8 @@ export default function AdmissionDetail(){
    window.addEventListener("aghaaz:sync-complete",onSync);
    void onSync();
    return()=>window.removeEventListener("aghaaz:sync-complete",onSync);
- },[pendingEditOperationKey]);
- 
+ },[load, pendingEditOperationKey]);
+
  async function changeStatus(status:string){
    if(!app)return;
    setSaving(true);setError("");setSuccess("");

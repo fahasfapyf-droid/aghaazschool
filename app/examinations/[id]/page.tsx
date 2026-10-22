@@ -1,10 +1,11 @@
 "use client";
+import { toEnrollmentStudents } from "@/lib/student-options";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 type Component = { name: string; maxMarks: number };
 type ResultComponent = Component & { marks: string };
-type Student = { id: string; application?: { studentName?: string; sessionId?: string }; enrollment?: { id: string; className?: string; section?: string } };
+type Student = { id: string; application?: { studentName?: string; sessionId?: string }; enrollment?: { id: string; className?: string; section?: string | null } };
 type Result = { id: string; studentId: string; marks: string; grade?: string; remarks?: string | null; components?: ResultComponent[] };
 type Paper = { id: string; className: string; subject: string; maxMarks: string; passMarks: string; results: Result[] };
 type PaperReadiness = { paperId: string; subject: string; className: string; expected: number; entered: number; missing: number; invalid: number; ready: boolean };
@@ -25,14 +26,14 @@ export default function ExamDetail({ params }: { params: Promise<{ id: string }>
   const [saving, setSaving] = useState("");
   const [statusSaving, setStatusSaving] = useState(false);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     const { id } = await params;
     const [a, b] = await Promise.all([fetch(`/api/exams/${id}`), fetch("/api/students")]);
     const x = await a.json();
     const s = await b.json();
     if (!a.ok) { setError(x.error || "Unable to load exam"); return; }
     setExam(x);
-    const allStudents: Student[] = Array.isArray(s) ? s : s.students || [];
+    const allStudents: Student[] = toEnrollmentStudents(Array.isArray(s) ? s : s.students || []);
     setStudents(allStudents.filter(student => student.application?.sessionId === x.session.id));
     const nextMarks: Record<string, string> = {};
     const nextComponents: ComponentValues = {};
@@ -57,9 +58,9 @@ export default function ExamDetail({ params }: { params: Promise<{ id: string }>
       }));
       setConfigs(Object.fromEntries(loaded));
     } else setConfigs({});
-  };
+  }, [params]);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [load]);
 
   function setComponent(paperId: string, studentId: string, name: string, value: string) {
     const key = `${paperId}:${studentId}`;
